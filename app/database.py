@@ -1,83 +1,97 @@
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import declarative_base
-from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 import asyncpg
 from loguru import logger
-
-from app.config import settings
-
-# Create async engine
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    pool_size=settings.DATABASE_POOL_SIZE,
-    max_overflow=settings.DATABASE_MAX_OVERFLOW,
-    pool_timeout=settings.DATABASE_POOL_TIMEOUT,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-)
-
-# Session factory
-AsyncSessionLocal = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autocommit=False,
-    autoflush=False,
-)
-
-Base = declarative_base()
-
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+from typing import Optional
+import os
 
 class DatabasePool:
     def __init__(self):
         self.pool = None
+        self.is_connected = False
     
     async def initialize(self):
-        self.pool = await asyncpg.create_pool(
-            settings.DATABASE_URL,
-            min_size=5,
-            max_size=20,
-            timeout=60,
-            command_timeout=60,
-        )
-        logger.info("Database pool initialized")
+        """Initialize database connection pool"""
+        database_url = os.getenv("DATABASE_URL", "")
+        
+        if not database_url:
+            logger.warning("No DATABASE_URL provided, database features disabled")
+            return
+        
+        try:
+            self.pool = await asyncpg.create_pool(
+                database_url,
+                min_size=2,
+                max_size=10,
+                timeout=10,
+                command_timeout=10,
+            )
+            self.is_connected = True
+            logger.info("Database pool initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize database pool: {e}")
+            self.is_connected = False
     
     async def close(self):
+        """Close database pool"""
         if self.pool:
             await self.pool.close()
             logger.info("Database pool closed")
     
-    @asynccontextmanager
-    async def acquire(self):
-        async with self.pool.acquire() as connection:
-            yield connection
-    
     async def execute(self, query: str, *args):
-        async with self.pool.acquire() as connection:
-            return await connection.execute(query, *args)
+        """Execute query with error handling"""
+        if not self.pool:
+            logger.warning("Database not available")
+            return None
+        
+        try:
+            async with self.pool.acquire() as connection:
+                return await connection.execute(query, *args)
+        except Exception as e:
+            logger.error(f"Database query failed: {e}")
+            return None
     
     async def fetch(self, query: str, *args):
-        async with self.pool.acquire() as connection:
-            return await connection.fetch(query, *args)
+        """Fetch results with error handling"""
+        if not self.pool:
+            return []
+        
+        try:
+            async with self.pool.acquire() as connection:
+                return await connection.fetch(query, *args)
+        except Exception as e:
+            logger.error(f"Database fetch failed: {e}")
+            return []
     
     async def fetchrow(self, query: str, *args):
-        async with self.pool.acquire() as connection:
-            return await connection.fetchrow(query, *args)
+        """Fetch single row with error handling"""
+        if not self.pool:
+            return None
+        
+        try:
+            async with self.pool.acquire() as connection:
+                return await connection.fetchrow(query, *args)
+        except Exception as e:
+            logger.error(f"Database fetchrow failed: {e}")
+            return None
     
     async def fetchval(self, query: str, *args):
-        async with self.pool.acquire() as connection:
-            return await connection.fetchval(query, *args)
+        """Fetch single value with error handling"""
+        if not self.pool:
+            return None
+        
+        try:
+            async with self.pool.acquire() as connection:
+                return await connection.fetchval(query, *args)
+        except Exception as e:
+            logger.error(f"Database fetchval failed: {e}")
+            return None
 
+# Global database pool instance
 db_pool = DatabasePool()
+
+# Dummy for imports that expect these
+Base = object
+engine = None
+
+async def get_db():
+    """Dummy function for compatibility"""
+    yield None
