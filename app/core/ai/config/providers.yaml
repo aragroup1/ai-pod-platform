@@ -1,0 +1,12 @@
+# Provider configurations
+flux:
+  display_name: "FLUX AI"
+  enabled: true
+  priority: 10
+  cost_per_image: 0.003
+
+leonardo:
+  display_name: "Leonardo AI"
+  enabled: true
+  priority: 20
+  cost_per_image: 0.039
