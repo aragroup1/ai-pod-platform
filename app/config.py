@@ -1,27 +1,28 @@
 from pydantic_settings import BaseSettings
 from typing import List, Optional
 from functools import lru_cache
+import os
 
 class Settings(BaseSettings):
     # Environment
     ENVIRONMENT: str = "development"
-    DEBUG: bool = True
-    SECRET_KEY: str
-    ENCRYPTION_KEY: str
+    DEBUG: bool = False
+    SECRET_KEY: str = "default-secret-key-change-in-production"
+    ENCRYPTION_KEY: str = "default-encryption-key-change-this"
     API_V1_PREFIX: str = "/api/v1"
     DOMAIN: str = "localhost"
     
-    # Database
-    DATABASE_URL: str
+    # Database - with defaults
+    DATABASE_URL: str = ""
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 40
     DATABASE_POOL_TIMEOUT: int = 30
     
-    # Redis
-    REDIS_URL: str
+    # Redis - with defaults
+    REDIS_URL: str = ""
     REDIS_CACHE_TTL: int = 300
     
-    # AI APIs
+    # AI APIs - all optional
     REPLICATE_API_TOKEN: Optional[str] = None
     LEONARDO_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
@@ -33,15 +34,11 @@ class Settings(BaseSettings):
     LEONARDO_COST_PER_IMAGE: float = 0.039
     OPENAI_COST_PER_IMAGE: float = 0.040
     
-    # Trend Analysis
+    # Optional services
     SERPAPI_KEY: Optional[str] = None
     GOOGLE_TRENDS_API_KEY: Optional[str] = None
-    
-    # POD Providers
     PRINTFUL_API_TOKEN: Optional[str] = None
     PRINTIFY_API_TOKEN: Optional[str] = None
-    
-    # Platforms
     SHOPIFY_API_KEY: Optional[str] = None
     SHOPIFY_API_SECRET: Optional[str] = None
     SHOPIFY_ACCESS_TOKEN: Optional[str] = None
@@ -54,12 +51,12 @@ class Settings(BaseSettings):
     CLOUDFLARE_R2_ENDPOINT: Optional[str] = None
     CLOUDFLARE_R2_PUBLIC_URL: Optional[str] = None
     
-    # Celery
-    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
+    # Celery - with defaults
+    CELERY_BROKER_URL: str = ""
+    CELERY_RESULT_BACKEND: str = ""
     
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: List[str] = ["*"]
     
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 60
