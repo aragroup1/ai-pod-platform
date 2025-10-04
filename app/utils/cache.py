@@ -1,62 +1,76 @@
 import redis.asyncio as redis
-from functools import wraps
+from loguru import logger
+import os
 import json
-import hashlib
 from typing import Optional, Any
-from app.config import settings
 
 class RedisClient:
     def __init__(self):
         self.client = None
+        self.is_connected = False
     
     async def initialize(self):
-        self.client = redis.from_url(
-            settings.REDIS_URL,
-            decode_responses=True
-        )
+        """Initialize Redis connection"""
+        redis_url = os.getenv("REDIS_URL", "")
+        
+        if not redis_url:
+            logger.warning("No REDIS_URL provided, caching disabled")
+            return
+        
+        try:
+            self.client = redis.from_url(redis_url, decode_responses=True)
+            await self.client.ping()
+            self.is_connected = True
+            logger.info("Redis connected successfully")
+        except Exception as e:
+            logger.warning(f"Redis connection failed: {e}")
+            self.is_connected = False
     
     async def close(self):
+        """Close Redis connection"""
         if self.client:
             await self.client.close()
     
     async def get(self, key: str) -> Optional[str]:
-        if self.client:
+        """Get value from cache"""
+        if not self.client or not self.is_connected:
+            return None
+        
+        try:
             return await self.client.get(key)
-        return None
+        except Exception as e:
+            logger.error(f"Redis get failed: {e}")
+            return None
     
     async def set(self, key: str, value: Any, ttl: int = 300):
-        if self.client:
+        """Set value in cache"""
+        if not self.client or not self.is_connected:
+            return
+        
+        try:
             await self.client.set(key, json.dumps(value), ex=ttl)
-    
-    async def delete(self, key: str):
-        if self.client:
-            await self.client.delete(key)
+        except Exception as e:
+            logger.error(f"Redis set failed: {e}")
     
     async def ping(self) -> bool:
-        if self.client:
-            return await self.client.ping()
-        return False
+        """Check Redis connection"""
+        if not self.client:
+            return False
+        
+        try:
+            await self.client.ping()
+            return True
+        except:
+            return False
 
+# Global Redis client instance
 redis_client = RedisClient()
 
+# Dummy cache decorator for when Redis is not available
 def cache_result(ttl: int = 300):
     def decorator(func):
-        @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Create cache key
-            cache_key = f"{func.__name__}:{hashlib.md5(str(args).encode()).hexdigest()}"
-            
-            # Try to get from cache
-            cached = await redis_client.get(cache_key)
-            if cached:
-                return json.loads(cached)
-            
-            # Call function
-            result = await func(*args, **kwargs)
-            
-            # Store in cache
-            await redis_client.set(cache_key, result, ttl)
-            
-            return result
+            # Just call the function without caching if Redis is not available
+            return await func(*args, **kwargs)
         return wrapper
     return decorator
