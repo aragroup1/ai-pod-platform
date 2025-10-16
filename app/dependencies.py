@@ -1,35 +1,20 @@
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
-from app.config import settings
+from fastapi import Request, HTTPException, status, Depends
+from typing import Optional
 
-security = HTTPBearer()
-
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Get current authenticated user"""
-    token = credentials.credentials
-    
-    try:
-        payload = jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=["HS256"]
-        )
-        user_id = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials"
-            )
-        return user_id
-    except JWTError:
+# This can be expanded later for user authentication
+async def get_db_pool(request: Request):
+    """
+    Dependency to get the database pool.
+    Raises a 503 error if the database is not connected.
+    """
+    if not hasattr(request.app.state, 'db_pool') or not request.app.state.db_pool.is_connected:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection is not available.",
         )
+    return request.app.state.db_pool
 
-async def get_current_admin_user(user_id: str = Depends(get_current_user)):
-    """Verify user is admin"""
-    # For now, just return user_id
-    # In production, check if user has admin role
-    return user_id
+# Dummy dependency for admin user, can be implemented later
+async def get_current_admin_user():
+    """Placeholder for admin user authentication."""
+    return {"username": "admin", "roles": ["admin"]}
