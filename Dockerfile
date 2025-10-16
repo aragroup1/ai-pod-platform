@@ -3,7 +3,9 @@ FROM python:3.11-slim
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=8000
+    APP_HOME=/app
+
+WORKDIR $APP_HOME
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -12,25 +14,28 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Set work directory
-WORKDIR /app
-
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application
+# Copy application code
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p /app/logs /app/storage/images /app/storage/thumbnails
+# Create logs directory for the application
+RUN mkdir -p /app/logs
 
-# Create non-root user
+# Copy and prepare the startup script
+COPY start.sh .
+RUN chmod +x start.sh
+
+# Create non-root user and give ownership
 RUN adduser --disabled-password --gecos '' appuser && \
-    chown -R appuser:appuser /app
+    chown -R appuser:appuser $APP_HOME
 
 USER appuser
 
-# Use PORT environment variable from Railway
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Expose the port (Railway uses the PORT env var)
+EXPOSE 8000
+
+# Set the startup command to our script
+CMD ["/app/start.sh"]
