@@ -1,81 +1,38 @@
-import os
-import sys
-import time
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from loguru import logger
+// ... (keep the imports at the top)
 
-# --- Step 1: Configure Logging Immediately ---
-# This ensures we capture logs from the very start.
-logger.remove()
-logger.add(sys.stderr, level="INFO", format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>")
-logger.add("logs/app.log", rotation="10 MB", retention="7 days", level="INFO")
-
-logger.info("Application starting up...")
-
-# --- Step 2: Create the FastAPI App ---
-# This is lightweight and won't fail.
-app = FastAPI(
-    title="AI POD Platform",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc"
-)
-
-# --- Step 3: Define a Minimal, Dependency-Free Health Check ---
-# This endpoint MUST work for Railway to consider the deployment healthy.
-@app.get("/health", tags=["Health"])
-async def health_check():
-    return {"status": "healthy", "version": "1.0.0"}
-
-# --- Step 4: Add Middleware ---
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], # In production, restrict this
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
-    response.headers["X-Process-Time"] = str(process_time)
-    logger.info(f"Request: {request.method} {request.url.path} - Status: {response.status_code} - Time: {process_time:.4f}s")
-    return response
-
-
-# --- Step 5: Lifespan Manager for Heavy Lifting ---
-# All connections and complex initializations happen here, after the app is running.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Executing lifespan startup...")
     
     # Delayed imports
     from app.config import settings
-    from app.database import db_pool
+    from app.database import db_pool, DatabasePool # Import the class
     from app.utils.cache import redis_client
 
     # Initialize Database Pool
+    app.state.db_pool = db_pool # Make it available globally
     try:
-        await db_pool.initialize()
-        app.state.db_pool = db_pool
-        logger.info("Database pool connected.")
+        await app.state.db_pool.initialize()
+        if app.state.db_pool.is_connected:
+            logger.info("Database pool connected successfully.")
+        else:
+            # This handles the case where initialize() runs but fails internally
+            logger.warning("Database initialization ran but failed to connect.")
     except Exception as e:
-        logger.error(f"Failed to connect to the database: {e}")
-        app.state.db_pool = None
+        logger.error(f"A critical error occurred during database initialization: {e}")
+        app.state.db_pool.is_connected = False # Ensure state is false
 
     # Initialize Redis Client
+    app.state.redis_client = redis_client # Make it available globally
     try:
-        await redis_client.initialize()
-        app.state.redis_client = redis_client
-        logger.info("Redis client connected.")
+        await app.state.redis_client.initialize()
+        if app.state.redis_client.is_connected:
+            logger.info("Redis client connected successfully.")
+        else:
+            logger.warning("Redis initialization ran but failed to connect.")
     except Exception as e:
-        logger.error(f"Failed to connect to Redis: {e}")
-        app.state.redis_client = None
+        logger.error(f"A critical error occurred during Redis initialization: {e}")
+        app.state.redis_client.is_connected = False # Ensure state is false
 
     # Load and register API routers here
     try:
@@ -92,33 +49,16 @@ async def lifespan(app: FastAPI):
         logger.info("All API routers have been included.")
     except Exception as e:
         logger.error(f"Failed to include routers: {e}")
-        # This will prevent the app from serving these routes but won't crash the startup
 
     logger.info("Lifespan startup complete. Application is ready.")
     yield
     
     # Shutdown logic
     logger.info("Executing lifespan shutdown...")
-    if app.state.db_pool:
+    if hasattr(app.state, 'db_pool') and app.state.db_pool:
         await app.state.db_pool.close()
         logger.info("Database pool closed.")
-    if app.state.redis_client:
+    if hasattr(app.state, 'redis_client') and app.state.redis_client:
         await app.state.redis_client.close()
         logger.info("Redis client closed.")
     logger.info("Lifespan shutdown complete.")
-
-# Assign the lifespan manager to the app
-app.router.lifespan_context = lifespan
-
-# --- Step 6: Root Endpoint and Final Handlers ---
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to the AI POD Platform"}
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.exception(f"An unhandled error occurred for request {request.method} {request.url}")
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "An internal server error occurred."},
-    )
