@@ -33,13 +33,14 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   // This will be automatically set by Railway's environment variables
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-  useEffect(() => {
+    useEffect(() => {
     const fetchData = async () => {
-      // Prevent fetching if API_URL is not set in production
-      if (process.env.NODE_ENV === 'production' && !process.env.NEXT_PUBLIC_API_URL) {
-          setError("API URL is not configured.");
+      // This is now the main guard
+      if (!API_URL) {
+          setError("API URL environment variable (NEXT_PUBLIC_API_URL) is not configured.");
+          setLoading(false);
           return;
       }
 
@@ -47,15 +48,15 @@ export default function DashboardPage() {
         setLoading(true);
         setError(null);
 
-        // Fetch data in parallel
+        // ... rest of the fetch logic remains the same
         const [statsResponse, productsResponse] = await Promise.all([
           fetch(`${API_URL}/api/v1/analytics/dashboard`),
           fetch(`${API_URL}/api/v1/products?limit=5`)
         ]);
 
-        if (!statsResponse.ok) throw new Error(`Failed to fetch dashboard stats (Status: ${statsResponse.status})`);
-        if (!productsResponse.ok) throw new Error(`Failed to fetch recent products (Status: ${productsResponse.status})`);
-
+        if (!statsResponse.ok) throw new Error(`Dashboard stats fetch failed (Status: ${statsResponse.status})`);
+        if (!productsResponse.ok) throw new Error(`Recent products fetch failed (Status: ${productsResponse.status})`);
+        // ... rest of the logic
         const statsData = await statsResponse.json();
         const productsData = await productsResponse.json();
 
