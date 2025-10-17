@@ -3,7 +3,10 @@
 
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "vector";
+-- pgvector extension (optional, for AI similarity search)
+-- Commented out because Railway's default Postgres doesn't include it
+-- You can enable it later if needed
+-- CREATE EXTENSION IF NOT EXISTS "vector";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
 -- Drop existing types if they exist (for clean setup)
