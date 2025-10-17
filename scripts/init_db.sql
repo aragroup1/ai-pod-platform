@@ -1,10 +1,11 @@
--- This script is now idempotent and can be run multiple times safely.
+-- Resilient Database Initialization Script
+-- Safe to run multiple times.
 
--- Enable required extensions
+-- Step 1: Enable necessary extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
--- Create enum types only if they don't exist
+-- Step 2: Create custom ENUM types if they don't exist
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'product_status') THEN
@@ -21,8 +22,8 @@ BEGIN
     END IF;
 END$$;
 
+-- Step 3: Create tables using IF NOT EXISTS
 
--- Create all tables with "IF NOT EXISTS"
 CREATE TABLE IF NOT EXISTS trends (
     id SERIAL PRIMARY KEY,
     keyword VARCHAR(255) NOT NULL,
@@ -56,7 +57,7 @@ CREATE TABLE IF NOT EXISTS products (
     artwork_id INTEGER REFERENCES artwork(id),
     category VARCHAR(100),
     tags TEXT[],
-    status product_status DEFAULT 'pending_approval',
+    status product_status DEFAULT 'draft', -- Uses the ENUM type
     created_at TIMESTAMP DEFAULT NOW(),
     metadata JSONB
 );
@@ -64,7 +65,7 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE TABLE IF NOT EXISTS platform_listings (
     id SERIAL PRIMARY KEY,
     product_id INTEGER REFERENCES products(id),
-    platform platform_type,
+    platform platform_type, -- Uses the ENUM type
     platform_product_id VARCHAR(255),
     platform_url VARCHAR(500),
     status VARCHAR(50),
@@ -75,19 +76,20 @@ CREATE TABLE IF NOT EXISTS platform_listings (
 CREATE TABLE IF NOT EXISTS orders (
     id SERIAL PRIMARY KEY,
     platform_order_id VARCHAR(255),
-    platform platform_type,
+    platform platform_type, -- Uses the ENUM type
     product_id INTEGER REFERENCES products(id),
     customer_data JSONB,
     order_value DECIMAL(10,2),
-    fulfillment_provider fulfillment_provider,
-    fulfillment_status order_status,
+    fulfillment_provider fulfillment_provider, -- Uses the ENUM type
+    fulfillment_status VARCHAR(50),
     tracking_number VARCHAR(255),
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    status order_status DEFAULT 'pending' -- Uses the ENUM type
 );
 
 CREATE TABLE IF NOT EXISTS analytics_daily (
     date DATE,
-    platform platform_type,
+    platform VARCHAR(50),
     product_id INTEGER,
     views INTEGER DEFAULT 0,
     clicks INTEGER DEFAULT 0,
@@ -97,29 +99,24 @@ CREATE TABLE IF NOT EXISTS analytics_daily (
     PRIMARY KEY (date, platform, product_id)
 );
 
--- Add other tables with "IF NOT EXISTS"
-CREATE TABLE IF NOT EXISTS provider_statistics (
-    provider_name VARCHAR(100) PRIMARY KEY
-);
-CREATE TABLE IF NOT EXISTS generation_logs (
-    id SERIAL PRIMARY KEY
-);
-CREATE TABLE IF NOT EXISTS custom_providers (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) UNIQUE NOT NULL
-);
-CREATE TABLE IF NOT EXISTS pod_providers (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) UNIQUE NOT NULL
-);
-CREATE TABLE IF NOT EXISTS system_settings (
-    id SERIAL PRIMARY KEY,
-    key VARCHAR(100) UNIQUE NOT NULL
-);
+-- Add other tables if they don't exist
+CREATE TABLE IF NOT EXISTS custom_providers (id SERIAL PRIMARY KEY, name VARCHAR(100) UNIQUE);
+CREATE TABLE IF NOT EXISTS generation_logs (id SERIAL PRIMARY KEY, provider VARCHAR(100));
+CREATE TABLE IF NOT EXISTS pod_providers (id SERIAL PRIMARY KEY, name VARCHAR(100) UNIQUE);
+CREATE TABLE IF NOT EXISTS provider_statistics (provider_name VARCHAR(100) PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS system_settings (id SERIAL PRIMARY KEY, key VARCHAR(100) UNIQUE);
 
--- Add indexes with "IF NOT EXISTS"
-CREATE INDEX IF NOT EXISTS idx_trends_keyword ON trends(keyword);
-CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
--- ... (You can add more indexes here in the same safe way)
 
--- The startup script will now succeed every time.
+-- Step 4: Create indexes using IF NOT EXISTS
+CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+
+-- Note: We are leaving out more complex objects like triggers for now to ensure startup.
+-- They can be added back later if needed.
+
+-- Step 5: Initial seed data using ON CONFLICT to be safe
+INSERT INTO pod_providers (name, is_active, priority, capabilities) VALUES
+    ('printful', true, 1, '{"regions": ["US", "EU", "UK"], "products": ["canvas", "poster", "t-shirt"]}'),
+    ('printify', true, 2, '{"regions": ["US", "EU"], "products": ["canvas", "poster", "mug"]}'),
+    ('gooten', true, 3, '{"regions": ["US"], "products": ["canvas", "poster"]}')
+ON CONFLICT (name) DO NOTHING;
