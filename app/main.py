@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
+from app.api.v1 import trends, products, artwork, platforms, orders, analytics, test
 
 # --- Step 1: Configure Logging Immediately ---
 # This ensures we capture logs from the very start.
