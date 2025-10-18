@@ -4,14 +4,33 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
--- Step 2: Create custom ENUM types
-CREATE TYPE product_status AS ENUM ('draft', 'pending_approval', 'approved', 'active', 'paused', 'archived');
-CREATE TYPE order_status AS ENUM ('pending', 'processing', 'fulfilled', 'shipped', 'delivered', 'cancelled', 'refunded');
-CREATE TYPE platform_type AS ENUM ('shopify', 'amazon', 'etsy', 'ebay', 'tiktok');
-CREATE TYPE fulfillment_provider AS ENUM ('printful', 'printify', 'gooten', 'customcat', 'gelato');
+-- Step 2: Create custom ENUM types (only if they don't exist)
+DO $$ BEGIN
+    CREATE TYPE product_status AS ENUM ('draft', 'pending_approval', 'approved', 'active', 'paused', 'archived');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
--- Step 3: Create tables
-CREATE TABLE trends (
+DO $$ BEGIN
+    CREATE TYPE order_status AS ENUM ('pending', 'processing', 'fulfilled', 'shipped', 'delivered', 'cancelled', 'refunded');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE platform_type AS ENUM ('shopify', 'amazon', 'etsy', 'ebay', 'tiktok');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE fulfillment_provider AS ENUM ('printful', 'printify', 'gooten', 'customcat', 'gelato');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+-- Step 3: Create tables (IF NOT EXISTS for safety)
+CREATE TABLE IF NOT EXISTS trends (
     id SERIAL PRIMARY KEY,
     keyword VARCHAR(255) NOT NULL,
     search_volume INTEGER DEFAULT 0,
@@ -22,7 +41,7 @@ CREATE TABLE trends (
     data JSONB
 );
 
-CREATE TABLE artwork (
+CREATE TABLE IF NOT EXISTS artwork (
     id SERIAL PRIMARY KEY,
     prompt TEXT,
     provider VARCHAR(50),
@@ -35,7 +54,7 @@ CREATE TABLE artwork (
     metadata JSONB
 );
 
-CREATE TABLE products (
+CREATE TABLE IF NOT EXISTS products (
     id SERIAL PRIMARY KEY,
     sku VARCHAR(100) UNIQUE,
     title VARCHAR(255),
@@ -49,7 +68,7 @@ CREATE TABLE products (
     metadata JSONB
 );
 
-CREATE TABLE platform_listings (
+CREATE TABLE IF NOT EXISTS platform_listings (
     id SERIAL PRIMARY KEY,
     product_id INTEGER REFERENCES products(id),
     platform platform_type,
@@ -60,14 +79,14 @@ CREATE TABLE platform_listings (
     performance_data JSONB
 );
 
-CREATE TABLE orders (
+CREATE TABLE IF NOT EXISTS orders (
     id SERIAL PRIMARY KEY,
     platform_order_id VARCHAR(255),
     platform platform_type,
     product_id INTEGER REFERENCES products(id),
     customer_data JSONB,
     order_value DECIMAL(10,2),
-    profit DECIMAL(10,2),  -- <-- THIS COLUMN WAS MISSING
+    profit DECIMAL(10,2),
     fulfillment_provider fulfillment_provider,
     fulfillment_status VARCHAR(50),
     tracking_number VARCHAR(255),
@@ -75,7 +94,7 @@ CREATE TABLE orders (
     status order_status DEFAULT 'pending'
 );
 
-CREATE TABLE analytics_daily (
+CREATE TABLE IF NOT EXISTS analytics_daily (
     date DATE,
     platform VARCHAR(50),
     product_id INTEGER,
@@ -87,17 +106,40 @@ CREATE TABLE analytics_daily (
     PRIMARY KEY (date, platform, product_id)
 );
 
-CREATE TABLE pod_providers (
+CREATE TABLE IF NOT EXISTS pod_providers (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) UNIQUE,
-    is_active BOOLEAN DEFAULT true, -- <-- THIS COLUMN WAS MISSING
+    is_active BOOLEAN DEFAULT true,
     priority INTEGER,
     capabilities JSONB
 );
 
--- Insert default POD providers (FIX: Use correct column names)
+-- Step 4: Create indexes for performance
+CREATE INDEX IF NOT EXISTS idx_trends_keyword ON trends(keyword);
+CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
+CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_analytics_date ON analytics_daily(date);
+
+-- Step 5: Insert default POD providers (only if they don't exist)
 INSERT INTO pod_providers (name, priority, capabilities) VALUES
     ('printful', 1, '{"regions": ["US", "EU", "UK"], "products": ["canvas", "poster", "t-shirt"]}'),
     ('printify', 2, '{"regions": ["US", "EU"], "products": ["canvas", "poster", "mug"]}'),
     ('gooten', 3, '{"regions": ["US"], "products": ["canvas", "poster"]}')
 ON CONFLICT (name) DO NOTHING;
+
+-- Step 6: Insert some sample data for testing (optional)
+-- Only insert if tables are empty
+INSERT INTO products (sku, title, base_price, status)
+SELECT 'SAMPLE-001', 'Sample Canvas Print', 29.99, 'active'
+WHERE NOT EXISTS (SELECT 1 FROM products LIMIT 1);
+
+INSERT INTO products (sku, title, base_price, status)
+SELECT 'SAMPLE-002', 'Sample T-Shirt Design', 19.99, 'active'
+WHERE NOT EXISTS (SELECT 1 FROM products WHERE sku = 'SAMPLE-002');
+
+-- Log successful initialization
+DO $$
+BEGIN
+    RAISE NOTICE 'Database schema initialized successfully!';
+END $$;
