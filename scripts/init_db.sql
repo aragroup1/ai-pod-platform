@@ -95,8 +95,9 @@ CREATE TABLE pod_providers (
     capabilities JSONB
 );
 
--- Step 4: Initial seed data
-INSERT INTO pod_providers (name, is_active, priority, capabilities) VALUES
-('printful', true, 1, '{"regions": ["US", "EU", "UK"], "products": ["canvas", "poster", "t-shirt"]}'),
-('printify', true, 2, '{"regions": ["US", "EU"], "products": ["canvas", "poster", "mug"]}'),
-('gooten', true, 3, '{"regions": ["US"], "products": ["canvas", "poster"]}');
+-- Insert default POD providers (FIX: Use correct column names)
+INSERT INTO pod_providers (name, priority, capabilities) VALUES
+    ('printful', 1, '{"regions": ["US", "EU", "UK"], "products": ["canvas", "poster", "t-shirt"]}'),
+    ('printify', 2, '{"regions": ["US", "EU"], "products": ["canvas", "poster", "mug"]}'),
+    ('gooten', 3, '{"regions": ["US"], "products": ["canvas", "poster"]}')
+ON CONFLICT (name) DO NOTHING;
