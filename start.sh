@@ -28,6 +28,12 @@ if [ -n "$DATABASE_URL" ]; then
   # Run any pending migrations here in the future
   # alembic upgrade head || echo "--- [Pod Platform] No migrations to run ---"
   
+  # Optionally seed sample data (only if SEED_DATA is set to true)
+  if [ "$SEED_DATA" = "true" ]; then
+    echo "--- [Pod Platform] SEED_DATA=true. Adding sample data... ---"
+    psql $DATABASE_URL -f scripts/seed_data.sql -q 2>&1 || echo "--- [Pod Platform] Sample data seeding completed ---"
+  fi
+  
 else
   echo "--- [Pod Platform] No DATABASE_URL found. Running without database. ---"
 fi
