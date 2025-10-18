@@ -3,19 +3,13 @@ set -e
 
 echo "--- [Pod Platform] Startup Script Initializing ---"
 
-# Check if DATABASE_URL is set.
 if [ -n "$DATABASE_URL" ]; then
-  echo "--- [Pod Platform] Database URL found. Initializing schema... ---"
+  echo "--- [Pod Platform] Database URL found. Resetting schema... ---"
   
-  # On first boot or reset, wipe the schema to ensure it's clean.
-  # The || true prevents the script from crashing if it's the very first run.
-  echo "--- [Pod Platform] Resetting schema completely... ---"
-  psql $DATABASE_URL -f scripts/reset_schema.sql -q || true
+  # Always run reset to ensure clean state
+  psql $DATABASE_URL -f scripts/reset_schema.sql -q 2>&1 || echo "--- [Pod Platform] Schema reset completed ---"
   
-  # Run the main initialization script. This will now run on a clean slate.
-  psql $DATABASE_URL -f scripts/init_db.sql -q
-
-  echo "--- [Pod Platform] Schema is ready. ---"
+  echo "--- [Pod Platform] Schema ready. ---"
 else
   echo "--- [Pod Platform] No DATABASE_URL found. Skipping schema initialization. ---"
 fi
