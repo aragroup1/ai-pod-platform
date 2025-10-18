@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
 from app.api.v1 import trends, products, artwork, platforms, orders, analytics, test
-
+from app.api.v1.dashboard import providers as dashboard_providers
 # --- Step 1: Configure Logging Immediately ---
 # This ensures we capture logs from the very start.
 logger.remove()
@@ -63,6 +63,15 @@ async def lifespan(app: FastAPI):
         app.include_router(platforms.router, prefix=f"{settings.API_V1_PREFIX}/platforms", tags=["Platforms"])
         app.include_router(orders.router, prefix=f"{settings.API_V1_PREFIX}/orders", tags=["Orders"])
         app.include_router(test.router, prefix=f"{settings.API_V1_PREFIX}/test", tags=["Test"])
+```
+
+## Deployment Steps:
+
+1. **Push all these fixed files to your repository**
+
+2. **In Railway, for your backend service, set this environment variable temporarily:**
+```
+   SEED_DATA=true
         app.include_router(analytics.router, prefix=f"{settings.API_V1_PREFIX}/analytics", tags=["Analytics"])
         app.include_router(dashboard_providers.router, prefix=f"{settings.API_V1_PREFIX}/dashboard", tags=["Dashboard"])
         logger.info("All API routers have been included.")
