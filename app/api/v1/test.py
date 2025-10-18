@@ -25,22 +25,22 @@ async def test_status() -> Dict[str, Any]:
 
 @router.get("/database")
 async def test_database(
-    db_pool = Depends(get_db_pool)
+    pool = Depends(get_db_pool)
 ) -> Dict[str, Any]:
     """
     Test database connection and return table counts.
     """
     try:
         # Test basic query
-        test_query = await db_pool.fetchval("SELECT 1")
+        test_query = await pool.fetchval("SELECT 1")
         
         # Get table counts
-        products_count = await db_pool.fetchval("SELECT COUNT(*) FROM products")
-        orders_count = await db_pool.fetchval("SELECT COUNT(*) FROM orders")
-        trends_count = await db_pool.fetchval("SELECT COUNT(*) FROM trends")
+        products_count = await pool.fetchval("SELECT COUNT(*) FROM products")
+        orders_count = await pool.fetchval("SELECT COUNT(*) FROM orders")
+        trends_count = await pool.fetchval("SELECT COUNT(*) FROM trends")
         
         # Get database version
-        db_version = await db_pool.fetchval("SELECT version()")
+        db_version = await pool.fetchval("SELECT version()")
         
         return {
             "status": "connected",
