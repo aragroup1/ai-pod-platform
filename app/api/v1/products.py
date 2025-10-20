@@ -7,12 +7,12 @@ from app.dependencies import get_db_pool
 
 router = APIRouter()
 
-@router.get("/")
+@router.get("")  # <-- No trailing slash!
 async def get_products(
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
     status: Optional[str] = None,
-    db_pool: DatabasePool = Depends(get_db_pool)  # Fixed: proper dependency injection
+    db_pool: DatabasePool = Depends(get_db_pool)
 ):
     """
     Get a list of products with optional filtering.
