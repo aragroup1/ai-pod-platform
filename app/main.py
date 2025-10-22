@@ -6,7 +6,10 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
+# In the lifespan function, after loading other routers:
+from app.api.v1 import generation
 
+app.include_router(generation.router, prefix=f"{settings.API_V1_PREFIX}/generation", tags=["Generation"])
 # --- Step 1: Configure Logging Immediately ---
 # This ensures we capture logs from the very start.
 logger.remove()
