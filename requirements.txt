@@ -58,6 +58,10 @@ requests==2.31.0
 # prometheus-fastapi-instrumentator==6.1.0
 # sentry-sdk[fastapi]==1.38.0
 
+# Add to existing requirements.txt
+pytrends==4.9.2
+schedule==1.2.0
+
 # Development (optional)
 # pytest==7.4.3
 # pytest-asyncio==0.21.1
