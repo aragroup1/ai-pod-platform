@@ -1,133 +1,99 @@
-# app/api/v1/trends.py
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks
 from typing import List, Optional
+from loguru import logger
+
 from app.database import DatabasePool
 from app.dependencies import get_db_pool
+from app.core.trends.service import TrendService
 
 router = APIRouter()
 
-@router.get("")  # No trailing slash
+
+@router.get("")
 async def get_trends(
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    min_score: float = Query(0.0, ge=0.0, le=10.0),
+    category: Optional[str] = None,
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
-    """Get trending topics"""
-    query = """
-        SELECT id, keyword, search_volume, trend_score, geography, category, created_at 
-        FROM trends 
-        ORDER BY trend_score DESC 
-        LIMIT $1 OFFSET $2
+    """Get trending topics from database"""
+    try:
+        trend_service = TrendService(db_pool)
+        trends = await trend_service.get_top_trends(
+            limit=limit,
+            min_score=min_score,
+            category=category
+        )
+        
+        return {
+            "trends": [
+                {
+                    "id": t["id"],
+                    "keyword": t["keyword"],
+                    "search_volume": t["search_volume"],
+                    "trend_score": float(t["trend_score"]) if t["trend_score"] else 0,
+                    "geography": t["geography"],
+                    "category": t["category"],
+                    "created_at": t["created_at"].isoformat() if t["created_at"] else None
+                }
+                for t in trends
+            ],
+            "total": len(trends)
+        }
+        
+    except Exception as e:
+        logger.exception(f"Error fetching trends: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch trends")
+
+
+@router.post("/fetch")
+async def fetch_new_trends(
+    background_tasks: BackgroundTasks,
+    region: str = Query("GB", description="Country code"),
+    min_score: float = Query(6.0, ge=0.0, le=10.0),
+    db_pool: DatabasePool = Depends(get_db_pool)
+):
     """
-    results = await db_pool.fetch(query, limit, offset)
-    return {
-        "trends": [
-            {
-                "id": row["id"],
-                "keyword": row["keyword"],
-                "search_volume": row["search_volume"],
-                "trend_score": float(row["trend_score"]) if row["trend_score"] else 0,
-                "geography": row["geography"],
-                "category": row["category"],
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None
-            }
-            for row in results
-        ]
-    }
-
-# ===================================
-# app/api/v1/orders.py
-from fastapi import APIRouter, Depends, Query
-from app.database import DatabasePool
-from app.dependencies import get_db_pool
-
-router = APIRouter()
-
-@router.get("")  # No trailing slash
-async def get_orders(
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    db_pool: DatabasePool = Depends(get_db_pool)
-):
-    """Get orders"""
-    query = """
-        SELECT id, platform_order_id, platform, order_value, profit, status, created_at 
-        FROM orders 
-        ORDER BY created_at DESC 
-        LIMIT $1 OFFSET $2
+    Manually trigger trend fetching from Google Trends
+    This runs in the background
     """
-    results = await db_pool.fetch(query, limit, offset)
-    return {
-        "orders": [
-            {
-                "id": row["id"],
-                "platform_order_id": row["platform_order_id"],
-                "platform": row["platform"],
-                "order_value": float(row["order_value"]) if row["order_value"] else 0,
-                "profit": float(row["profit"]) if row["profit"] else 0,
-                "status": row["status"],
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None
-            }
-            for row in results
-        ]
-    }
+    try:
+        trend_service = TrendService(db_pool)
+        
+        # Run in background
+        background_tasks.add_task(
+            trend_service.fetch_and_store_trends,
+            region=region,
+            min_score=min_score
+        )
+        
+        return {
+            "message": "Trend fetching started in background",
+            "region": region,
+            "min_score": min_score
+        }
+        
+    except Exception as e:
+        logger.exception(f"Error starting trend fetch: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start trend fetching")
 
-# ===================================
-# app/api/v1/artwork.py
-from fastapi import APIRouter, Depends, Query
-from app.database import DatabasePool
-from app.dependencies import get_db_pool
 
-router = APIRouter()
-
-@router.get("")  # No trailing slash
-async def get_artwork(
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+@router.get("/without-products")
+async def get_trends_without_products(
+    limit: int = Query(10, ge=1, le=50),
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
-    """Get artwork"""
-    query = """
-        SELECT id, prompt, provider, style, image_url, generation_cost, quality_score, created_at 
-        FROM artwork 
-        ORDER BY created_at DESC 
-        LIMIT $1 OFFSET $2
-    """
-    results = await db_pool.fetch(query, limit, offset)
-    return {
-        "artwork": [
-            {
-                "id": row["id"],
-                "prompt": row["prompt"],
-                "provider": row["provider"],
-                "style": row["style"],
-                "image_url": row["image_url"],
-                "generation_cost": float(row["generation_cost"]) if row["generation_cost"] else 0,
-                "quality_score": float(row["quality_score"]) if row["quality_score"] else 0,
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None
-            }
-            for row in results
-        ]
-    }
-
-# ===================================
-# app/api/v1/platforms.py
-from fastapi import APIRouter, Depends
-from app.database import DatabasePool
-from app.dependencies import get_db_pool
-
-router = APIRouter()
-
-@router.get("")  # No trailing slash
-async def get_platforms(
-    db_pool: DatabasePool = Depends(get_db_pool)
-):
-    """Get platform integrations"""
-    # For now, return static list. Later can be from database
-    return {
-        "platforms": [
-            {"name": "shopify", "enabled": True, "order_count": 0},
-            {"name": "etsy", "enabled": False, "order_count": 0},
-            {"name": "amazon", "enabled": True, "order_count": 0}
-        ]
-    }
+    """Get trends that don't have products generated yet"""
+    try:
+        trend_service = TrendService(db_pool)
+        trends = await trend_service.get_trends_without_products(limit=limit)
+        
+        return {
+            "trends": trends,
+            "total": len(trends)
+        }
+        
+    except Exception as e:
+        logger.exception(f"Error fetching trends without products: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch trends")
