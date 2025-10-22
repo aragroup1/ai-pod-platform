@@ -67,3 +67,8 @@ schedule==1.2.0
 # pytest-asyncio==0.21.1
 # black==23.11.0
 # isort==5.12.0
+
+# Add these lines
+replicate==0.22.0
+Pillow==10.1.0
+aiohttp==3.9.1
