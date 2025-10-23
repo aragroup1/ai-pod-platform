@@ -97,36 +97,51 @@ class ProductGenerator:
         return products
     
     async def _save_artwork(
-        self,
-        trend_id: int,
-        artwork_data: Dict
-    ) -> int:
-        """Save generated artwork to database"""
-        
-        artwork_id = await self.db_pool.fetchval(
-            """
-            INSERT INTO artwork (
-                prompt, provider, style, image_url,
-                generation_cost, quality_score, trend_id, metadata
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING id
-            """,
-            artwork_data['prompt'],
-            artwork_data['model_used'],
-            artwork_data['style'],
-            artwork_data.get('print_url', artwork_data['image_url']),
-            0.04 if not self.testing_mode else 0.003,  # Cost estimate
-            9.0,  # Quality score (we trust our models!)
-            trend_id,
-            {
-                'original_url': artwork_data['image_url'],
-                'print_ready': artwork_data.get('print_ready', False),
-                'generated_at': artwork_data['generated_at'],
-                'dimensions': artwork_data['dimensions']
-            }
-        )
-        
-        return artwork_id
+    self,
+    trend_id: int,
+    artwork_data: Dict
+) -> int:
+    """Save generated artwork to database WITH permanent storage"""
+    
+    from app.utils.storage import storage_manager
+    
+    # Generate unique filename
+    artwork_filename = f"artwork/{trend_id}_{datetime.now().timestamp()}.png"
+    
+    # Download from Replicate and upload to R2
+    permanent_url = await storage_manager.download_and_upload(
+        source_url=artwork_data['image_url'],
+        destination_path=artwork_filename
+    )
+    
+    # Use permanent URL if available, otherwise fall back to temp URL
+    final_url = permanent_url or artwork_data['image_url']
+    
+    artwork_id = await self.db_pool.fetchval(
+        """
+        INSERT INTO artwork (
+            prompt, provider, style, image_url,
+            generation_cost, quality_score, trend_id, metadata
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id
+        """,
+        artwork_data['prompt'],
+        artwork_data['model_used'],
+        artwork_data['style'],
+        final_url,  # Use permanent URL
+        0.04 if not self.testing_mode else 0.003,
+        9.0,
+        trend_id,
+        {
+            'original_url': artwork_data['image_url'],  # Keep temp URL for reference
+            'permanent_url': permanent_url,
+            'print_ready': artwork_data.get('print_ready', False),
+            'generated_at': artwork_data['generated_at'],
+            'dimensions': artwork_data['dimensions']
+        }
+    )
+    
+    return artwork_id
     
     async def _create_product(
         self,
