@@ -6,9 +6,6 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
-from app.api.v1 import analytics_detailed
-
-app.include_router(analytics_detailed.router, prefix=f"{settings.API_V1_PREFIX}/analytics", tags=["Analytics Detailed"])
 
 # --- Step 1: Configure Logging Immediately ---
 logger.remove()
@@ -32,11 +29,11 @@ async def lifespan(app: FastAPI):
     try:
         await app.state.db_pool.initialize()
         if app.state.db_pool.is_connected:
-            logger.info("Database pool connected successfully.")
+            logger.info("✅ Database pool connected successfully.")
         else:
-            logger.warning("Database initialization ran but failed to connect (check DATABASE_URL).")
+            logger.warning("⚠️ Database initialization ran but failed to connect.")
     except Exception as e:
-        logger.error(f"A critical error occurred during database initialization: {e}")
+        logger.error(f"❌ Database initialization error: {e}")
         app.state.db_pool.is_connected = False
 
     # Initialize Redis Client
@@ -44,16 +41,19 @@ async def lifespan(app: FastAPI):
     try:
         await app.state.redis_client.initialize()
         if app.state.redis_client.is_connected:
-            logger.info("Redis client connected successfully.")
+            logger.info("✅ Redis client connected successfully.")
         else:
-            logger.warning("Redis initialization ran but failed to connect (check REDIS_URL).")
+            logger.warning("⚠️ Redis failed to connect.")
     except Exception as e:
-        logger.error(f"A critical error occurred during Redis initialization: {e}")
+        logger.error(f"❌ Redis initialization error: {e}")
         app.state.redis_client.is_connected = False
 
-    # Load and register API routers here
+    # Load and register API routers
     try:
-        from app.api.v1 import trends, products, artwork, platforms, orders, analytics, test, generation
+        from app.api.v1 import (
+            trends, products, artwork, platforms, 
+            orders, analytics, test, generation
+        )
         from app.api.v1.dashboard import providers as dashboard_providers
         
         app.include_router(trends.router, prefix=f"{settings.API_V1_PREFIX}/trends", tags=["Trends"])
@@ -65,27 +65,30 @@ async def lifespan(app: FastAPI):
         app.include_router(test.router, prefix=f"{settings.API_V1_PREFIX}/test", tags=["Test"])
         app.include_router(generation.router, prefix=f"{settings.API_V1_PREFIX}/generation", tags=["Generation"])
         app.include_router(dashboard_providers.router, prefix=f"{settings.API_V1_PREFIX}/dashboard", tags=["Dashboard"])
-        logger.info("All API routers have been included.")
+        
+        logger.info("✅ All API routers loaded successfully.")
     except Exception as e:
-        logger.error(f"Failed to include some routers: {e}")
+        logger.error(f"❌ Failed to load routers: {e}")
 
-    logger.info("Lifespan startup complete. Application is ready.")
+    logger.info("🚀 Lifespan startup complete. Application is ready!")
     yield
     
     # Shutdown logic
-    logger.info("Executing lifespan shutdown...")
+    logger.info("Shutting down...")
     if hasattr(app.state, 'db_pool') and app.state.db_pool and app.state.db_pool.is_connected:
         await app.state.db_pool.close()
         logger.info("Database pool closed.")
     if hasattr(app.state, 'redis_client') and app.state.redis_client and app.state.redis_client.is_connected:
         await app.state.redis_client.close()
         logger.info("Redis client closed.")
-    logger.info("Lifespan shutdown complete.")
+    logger.info("✅ Shutdown complete.")
 
 
 # --- Step 3: Create the FastAPI App ---
 app = FastAPI(
     title="AI POD Platform",
+    description="AI-Powered Print-on-Demand Platform with Google Trends Integration",
+    version="1.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     lifespan=lifespan
@@ -120,11 +123,15 @@ async def health_check():
 # --- Step 6: Root Endpoint ---
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to the AI POD Platform"}
+    return {
+        "message": "Welcome to the AI POD Platform",
+        "version": "1.0.0",
+        "docs": "/api/docs"
+    }
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.exception(f"An unhandled error occurred for request {request.method} {request.url}")
+    logger.exception(f"Unhandled error for {request.method} {request.url}")
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "An internal server error occurred."},
