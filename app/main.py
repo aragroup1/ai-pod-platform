@@ -6,6 +6,9 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
+from app.api.v1 import analytics_detailed
+
+app.include_router(analytics_detailed.router, prefix=f"{settings.API_V1_PREFIX}/analytics", tags=["Analytics Detailed"])
 
 # --- Step 1: Configure Logging Immediately ---
 logger.remove()
