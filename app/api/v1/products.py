@@ -7,7 +7,7 @@ from app.dependencies import get_db_pool
 
 router = APIRouter()
 
-@router.get("")  # <-- No trailing slash!
+@router.get("/")
 async def get_products(
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
