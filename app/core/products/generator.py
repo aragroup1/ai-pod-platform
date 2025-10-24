@@ -2,6 +2,7 @@ import asyncio
 from typing import List, Dict, Optional
 from loguru import logger
 from datetime import datetime
+import json  # ✅ CRITICAL FIX: Import json
 
 from app.database import DatabasePool
 from app.core.ai.generator import get_ai_generator
@@ -18,14 +19,6 @@ class ProductGenerator:
     ]
     
     def __init__(self, db_pool: DatabasePool, testing_mode: bool = False, budget_mode: str = "balanced"):
-        """
-        Initialize product generator
-        
-        Args:
-            db_pool: Database connection pool
-            testing_mode: If True, use cheapest models for testing
-            budget_mode: "cheap" | "balanced" | "quality" - affects model selection
-        """
         self.db_pool = db_pool
         self.ai_generator = get_ai_generator(testing_mode=testing_mode, budget_mode=budget_mode)
         self.testing_mode = testing_mode
@@ -39,19 +32,8 @@ class ProductGenerator:
         styles: Optional[List[str]] = None,
         upscale: bool = False
     ) -> List[Dict]:
-        """
-        Generate products from a single trend in multiple styles
-        Each style automatically gets the best AI model
+        """Generate products from a single trend in multiple styles"""
         
-        Args:
-            trend_id: ID of the trend
-            styles: List of styles (or None for all)
-            upscale: Whether to upscale for print
-            
-        Returns:
-            List of created products with model selection details
-        """
-        # Get trend data
         trend = await self.db_pool.fetchrow(
             "SELECT * FROM trends WHERE id = $1",
             trend_id
@@ -79,7 +61,6 @@ class ProductGenerator:
                 start_time = datetime.utcnow()
                 logger.info(f"  → Creating {style} version...")
                 
-                # Generate artwork (model is automatically selected)
                 artwork_data = await self.ai_generator.generate_product_artwork(
                     keyword=keyword,
                     style=style,
@@ -88,23 +69,20 @@ class ProductGenerator:
                 
                 generation_time = (datetime.utcnow() - start_time).total_seconds()
                 
-                # Track statistics
                 generation_stats['total_cost'] += artwork_data.get('generation_cost', 0)
                 model_used = artwork_data.get('model_key', 'unknown')
                 generation_stats['models_used'][model_used] = generation_stats['models_used'].get(model_used, 0) + 1
                 generation_stats['generation_times'].append(generation_time)
                 
-                # Log model selection
                 logger.info(f"  🤖 Model: {model_used} (${artwork_data.get('generation_cost', 0)})")
                 logger.info(f"  💡 Why: {', '.join(artwork_data.get('selection_reasoning', []))}")
                 
-                # Save artwork to database
+                # ✅ CRITICAL FIX: Save artwork with proper JSON serialization
                 artwork_id = await self._save_artwork(
                     trend_id=trend_id,
                     artwork_data=artwork_data
                 )
                 
-                # Create product
                 product_id = await self._create_product(
                     artwork_id=artwork_id,
                     keyword=keyword,
@@ -127,9 +105,9 @@ class ProductGenerator:
                 
             except Exception as e:
                 logger.error(f"  ❌ Failed to create {style} product: {e}")
+                logger.exception("Full traceback:")
                 continue
         
-        # Log summary statistics
         if products:
             avg_time = sum(generation_stats['generation_times']) / len(generation_stats['generation_times'])
             logger.info(f"\n📊 Generation Summary for '{keyword}':")
@@ -145,39 +123,55 @@ class ProductGenerator:
         trend_id: int,
         artwork_data: Dict
     ) -> int:
-        """Save generated artwork to database with model selection details"""
+        """
+        ✅ CRITICAL FIX: Save artwork with proper JSON serialization
+        """
         
-        # For now, we'll just use the temporary URL
-        # You can add Cloudflare R2 storage later
         final_url = artwork_data['image_url']
         
-        artwork_id = await self.db_pool.fetchval(
-            """
-            INSERT INTO artwork (
-                prompt, provider, style, image_url,
-                generation_cost, quality_score, trend_id, metadata
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING id
-            """,
-            artwork_data['prompt'],
-            artwork_data['model_used'],
-            artwork_data['style'],
-            final_url,
-            artwork_data.get('generation_cost', 0.04 if not self.testing_mode else 0.003),
-            artwork_data.get('quality_score', 9.0),
-            trend_id,
-            {
-                'original_url': artwork_data['image_url'],
-                'print_ready': artwork_data.get('print_ready', False),
-                'generated_at': artwork_data['generated_at'],
-                'dimensions': artwork_data['dimensions'],
-                'model_key': artwork_data.get('model_key', 'unknown'),
-                'selection_reasoning': artwork_data.get('selection_reasoning', []),
-                'keyword': artwork_data.get('keyword', '')
-            }
-        )
+        # ✅ Create metadata dict
+        metadata = {
+            'original_url': artwork_data['image_url'],
+            'print_ready': artwork_data.get('print_ready', False),
+            'generated_at': artwork_data['generated_at'],
+            'dimensions': artwork_data['dimensions'],
+            'model_key': artwork_data.get('model_key', 'unknown'),
+            'selection_reasoning': artwork_data.get('selection_reasoning', []),
+            'keyword': artwork_data.get('keyword', '')
+        }
         
-        return artwork_id
+        # ✅ CRITICAL FIX: Convert dict to JSON string
+        metadata_json = json.dumps(metadata)
+        
+        logger.debug(f"💾 Saving artwork with URL: {final_url[:80]}...")
+        logger.debug(f"📋 Metadata: {metadata_json[:100]}...")
+        
+        try:
+            artwork_id = await self.db_pool.fetchval(
+                """
+                INSERT INTO artwork (
+                    prompt, provider, style, image_url,
+                    generation_cost, quality_score, trend_id, metadata
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+                RETURNING id
+                """,
+                artwork_data['prompt'],
+                artwork_data['model_used'],
+                artwork_data['style'],
+                final_url,
+                artwork_data.get('generation_cost', 0.04 if not self.testing_mode else 0.003),
+                artwork_data.get('quality_score', 9.0),
+                trend_id,
+                metadata_json  # ✅ Pass as JSON string, not dict
+            )
+            
+            logger.info(f"  💾 Artwork saved: ID {artwork_id}")
+            return artwork_id
+            
+        except Exception as e:
+            logger.error(f"  ❌ Failed to save artwork: {e}")
+            logger.exception("Full traceback:")
+            raise
     
     async def _create_product(
         self,
@@ -199,25 +193,31 @@ class ProductGenerator:
                       f"High-quality print perfect for home or office decor. " \
                       f"Available in multiple sizes."
         
-        product_id = await self.db_pool.fetchval(
-            """
-            INSERT INTO products (
-                sku, title, description, base_price,
-                artwork_id, category, tags, status
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING id
-            """,
-            sku,
-            title,
-            description,
-            pricing['base_price'],
-            artwork_id,
-            trend_category or 'wall-art',
-            [keyword, style, trend_category, 'premium', 'print'],
-            'active'  # Ready to sell!
-        )
-        
-        return product_id
+        try:
+            product_id = await self.db_pool.fetchval(
+                """
+                INSERT INTO products (
+                    sku, title, description, base_price,
+                    artwork_id, category, tags, status
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING id
+                """,
+                sku,
+                title,
+                description,
+                pricing['base_price'],
+                artwork_id,
+                trend_category or 'wall-art',
+                [keyword, style, trend_category, 'premium', 'print'],
+                'active'
+            )
+            
+            return product_id
+            
+        except Exception as e:
+            logger.error(f"  ❌ Failed to create product: {e}")
+            logger.exception("Full traceback:")
+            raise
     
     async def batch_generate_from_trends(
         self,
@@ -225,19 +225,8 @@ class ProductGenerator:
         min_trend_score: float = 6.0,
         upscale: bool = False
     ) -> Dict:
-        """
-        Generate products for multiple top trends
-        Intelligently selects best AI model for each style
+        """Generate products for multiple top trends"""
         
-        Args:
-            limit: Number of trends to process
-            min_trend_score: Minimum trend score
-            upscale: Whether to upscale images
-            
-        Returns:
-            Summary dict with statistics including model usage and costs
-        """
-        # Get top trends without products
         trends = await self.db_pool.fetch(
             """
             SELECT t.id, t.keyword, t.trend_score, t.category
@@ -273,14 +262,12 @@ class ProductGenerator:
                 upscale=upscale
             )
             
-            # Aggregate statistics
             for product in products:
                 total_products += 1
                 total_cost += product.get('generation_cost', 0)
                 model = product.get('model_used', 'unknown')
                 all_models_used[model] = all_models_used.get(model, 0) + 1
             
-            # Small delay between trends
             await asyncio.sleep(2)
         
         logger.info(f"\n{'='*60}")
