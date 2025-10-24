@@ -4,11 +4,9 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { DollarSign, ShoppingCart, TrendingUp, Palette, AlertCircle, Play, RefreshCw, Zap, Info, Brain, Image as ImageIcon, ExternalLink } from 'lucide-react';
+import { DollarSign, ShoppingCart, TrendingUp, Palette, AlertCircle, RefreshCw, Zap, Info, Brain, Image as ImageIcon, ExternalLink, LayoutGrid } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
-import Image from 'next/image';
 
 // --- Data Interfaces ---
 interface DashboardStats {
@@ -59,8 +57,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isFetchingTrends, setIsFetchingTrends] = useState(false);
-  const [showModelInfo, setShowModelInfo] = useState(false);
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [showGallery, setShowGallery] = useState(false);
   
   // Generation settings
   const [budgetMode, setBudgetMode] = useState<'cheap' | 'balanced' | 'quality'>('balanced');
@@ -84,7 +81,7 @@ export default function DashboardPage() {
         fetch(`${API_URL}/api/v1/analytics/dashboard`, {
           headers: { 'Accept': 'application/json' }
         }),
-        fetch(`${API_URL}/api/v1/products/?limit=20`, {
+        fetch(`${API_URL}/api/v1/products/?limit=50`, {
           headers: { 'Accept': 'application/json' }
         }),
         fetch(`${API_URL}/api/v1/generation/status`, {
@@ -291,23 +288,86 @@ export default function DashboardPage() {
               <TrendingUp className={`h-4 w-4 mr-2 ${isFetchingTrends ? 'animate-pulse' : ''}`} />
               Fetch Trends
             </Button>
+            <Button
+              onClick={() => setShowGallery(!showGallery)}
+              variant={showGallery ? "default" : "outline"}
+            >
+              <LayoutGrid className="h-4 w-4 mr-2" />
+              Gallery ({productsWithImages.length})
+            </Button>
           </div>
         </header>
 
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-            <TabsTrigger value="gallery">
-              <ImageIcon className="h-4 w-4 mr-2" />
-              Gallery ({productsWithImages.length})
-            </TabsTrigger>
-            <TabsTrigger value="generate">Generate</TabsTrigger>
-          </TabsList>
+        {/* Gallery View */}
+        {showGallery && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Product Gallery</CardTitle>
+              <CardDescription>
+                View all generated artwork ({productsWithImages.length} products with images)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {productsWithImages.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <ImageIcon className="h-16 w-16 mx-auto mb-4 opacity-20" />
+                  <p>No products with images yet.</p>
+                  <p className="text-sm mt-2">Generate some products to see them here!</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {productsWithImages.map((product) => (
+                    <div key={product.id} className="group relative">
+                      <div className="aspect-square relative rounded-lg overflow-hidden border bg-muted">
+                        {product.artwork?.image_url ? (
+                          <div className="relative h-full w-full">
+                            <img
+                              src={product.artwork.image_url}
+                              alt={product.title}
+                              className="object-cover w-full h-full"
+                            />
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4 text-white text-center">
+                              <p className="text-sm font-semibold mb-2">{product.title}</p>
+                              <Badge variant="secondary" className="mb-2">
+                                {product.artwork.style}
+                              </Badge>
+                              <p className="text-xs">£{product.base_price}</p>
+                              <a
+                                href={product.artwork.image_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-2 text-xs underline flex items-center gap-1"
+                              >
+                                View Full <ExternalLink className="h-3 w-3" />
+                              </a>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center h-full">
+                            <ImageIcon className="h-12 w-12 text-muted-foreground/20" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-2">
+                        <p className="text-xs font-medium truncate">{product.title}</p>
+                        <div className="flex items-center justify-between mt-1">
+                          <Badge variant="outline" className="text-xs">
+                            {product.artwork?.style}
+                          </Badge>
+                          <span className="text-xs font-semibold">£{product.base_price}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
-          {/* Dashboard Tab */}
-          <TabsContent value="dashboard" className="space-y-4">
-            {/* Stats Cards */}
+        {/* Stats Cards */}
+        {!showGallery && (
+          <>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -356,97 +416,8 @@ export default function DashboardPage() {
               </Card>
             </div>
 
-            {/* Chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Revenue Overview</CardTitle>
-              </CardHeader>
-              <CardContent className="pl-2">
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="revenue" stroke="#8884d8" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Gallery Tab */}
-          <TabsContent value="gallery" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Product Gallery</CardTitle>
-                <CardDescription>
-                  View all generated artwork ({productsWithImages.length} products with images)
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {productsWithImages.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <ImageIcon className="h-16 w-16 mx-auto mb-4 opacity-20" />
-                    <p>No products with images yet.</p>
-                    <p className="text-sm mt-2">Generate some products to see them here!</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {productsWithImages.map((product) => (
-                      <div key={product.id} className="group relative">
-                        <div className="aspect-square relative rounded-lg overflow-hidden border bg-muted">
-                          {product.artwork?.image_url ? (
-                            <div className="relative h-full w-full">
-                              <img
-                                src={product.artwork.image_url}
-                                alt={product.title}
-                                className="object-cover w-full h-full"
-                              />
-                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4 text-white text-center">
-                                <p className="text-sm font-semibold mb-2">{product.title}</p>
-                                <Badge variant="secondary" className="mb-2">
-                                  {product.artwork.style}
-                                </Badge>
-                                <p className="text-xs">£{product.base_price}</p>
-                                <a
-                                  href={product.artwork.image_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="mt-2 text-xs underline flex items-center gap-1"
-                                >
-                                  View Full <ExternalLink className="h-3 w-3" />
-                                </a>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-center justify-center h-full">
-                              <ImageIcon className="h-12 w-12 text-muted-foreground/20" />
-                            </div>
-                          )}
-                        </div>
-                        <div className="mt-2">
-                          <p className="text-xs font-medium truncate">{product.title}</p>
-                          <div className="flex items-center justify-between mt-1">
-                            <Badge variant="outline" className="text-xs">
-                              {product.artwork?.style}
-                            </Badge>
-                            <span className="text-xs font-semibold">£{product.base_price}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Generate Tab */}
-          <TabsContent value="generate" className="space-y-4">
             {/* Generation Controls */}
-            {genStatus && genStatus.trends_awaiting_generation > 0 ? (
+            {genStatus && genStatus.trends_awaiting_generation > 0 && (
               <Card className="border-primary">
                 <CardHeader>
                   <CardTitle>Generate Products with Intelligent AI</CardTitle>
@@ -540,52 +511,28 @@ export default function DashboardPage() {
                   </div>
                 </CardContent>
               </Card>
-            ) : (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <AlertCircle className="h-16 w-16 mx-auto mb-4 text-muted-foreground/20" />
-                  <h3 className="text-lg font-semibold mb-2">No Trends Available</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Fetch some trends first to start generating products
-                  </p>
-                  <Button onClick={fetchTrends} disabled={isFetchingTrends}>
-                    <TrendingUp className="h-4 w-4 mr-2" />
-                    Fetch Trends Now
-                  </Button>
-                </CardContent>
-              </Card>
             )}
 
-            {/* Model Info */}
-            {modelInfo && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Brain className="h-5 w-5" />
-                    Intelligent AI Model Selection
-                  </CardTitle>
-                  <CardDescription>
-                    System automatically selects the best AI model for each art style
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {Object.entries(modelInfo.models).map(([key, model]: [string, any]) => (
-                      <div key={key} className="p-3 bg-muted rounded-lg">
-                        <h4 className="font-semibold text-sm mb-2 capitalize">{key.replace('-', ' ')}</h4>
-                        <div className="text-xs space-y-1 text-muted-foreground">
-                          <p>Cost: ${model.cost}</p>
-                          <p>Quality: {model.quality}</p>
-                          <p>Speed: {model.speed}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-        </Tabs>
+            {/* Chart */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Revenue Overview</CardTitle>
+              </CardHeader>
+              <CardContent className="pl-2">
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="revenue" stroke="#8884d8" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </main>
   );
