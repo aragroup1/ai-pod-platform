@@ -25,8 +25,8 @@ class IntelligentModelSelector:
         'flux-schnell': {
             'id': 'black-forest-labs/flux-schnell',
             'cost': 0.003,
-            'speed': 5,  # seconds
-            'quality': 7,  # 0-10 scale
+            'speed': 5,
+            'quality': 7,
             'text_rendering': 5,
             'photorealism': 6,
             'style_control': 6,
@@ -57,7 +57,7 @@ class IntelligentModelSelector:
             'cost': 0.025,
             'speed': 6,
             'quality': 8,
-            'text_rendering': 10,  # BEST for text!
+            'text_rendering': 10,
             'photorealism': 7,
             'style_control': 7,
             'best_for': ['typography', 'quotes', 'text-heavy']
@@ -65,37 +65,19 @@ class IntelligentModelSelector:
     }
     
     def __init__(self, budget_mode: str = "balanced"):
-        """
-        Initialize model selector
-        
-        Args:
-            budget_mode: "cheap" | "balanced" | "quality"
-        """
         self.budget_mode = budget_mode
     
     def select_model(self, style: str, keyword: str) -> Dict:
-        """
-        Intelligently select the best model
-        
-        Args:
-            style: Art style (minimalist, abstract, typography, etc.)
-            keyword: The keyword/prompt
-            
-        Returns:
-            Dict with model selection and reasoning
-        """
         style_lower = style.lower()
         keyword_lower = keyword.lower()
         
         reasoning = []
         
-        # Rule 1: Typography & Text-Heavy Content
         if self._needs_text_rendering(style_lower, keyword_lower):
             selected = 'ideogram-turbo'
             reasoning.append("Text-heavy content detected")
             reasoning.append("Ideogram has best text rendering (10/10)")
         
-        # Rule 2: Photorealism & Photography
         elif style_lower in ['photography', 'photorealistic']:
             if self.budget_mode == "quality":
                 selected = 'flux-pro'
@@ -106,19 +88,16 @@ class IntelligentModelSelector:
                 reasoning.append("Photography with balanced quality/cost")
                 reasoning.append("FLUX Dev provides good photorealism (8/10)")
         
-        # Rule 3: Detailed/Artistic Styles
         elif style_lower in ['watercolor', 'botanical', 'line_art']:
             selected = 'flux-dev'
             reasoning.append(f"Artistic style '{style}' detected")
             reasoning.append("FLUX Dev excels at artistic rendering")
         
-        # Rule 4: Budget Mode Override
         elif self.budget_mode == "cheap":
             selected = 'flux-schnell'
             reasoning.append("Budget mode: using fastest/cheapest")
             reasoning.append("FLUX Schnell at $0.003 per image")
         
-        # Rule 5: Style-Based Selection
         else:
             selected = self._select_by_style(style_lower)
             reasoning.append(f"Style-optimized selection for '{style}'")
@@ -136,7 +115,6 @@ class IntelligentModelSelector:
         }
     
     def _needs_text_rendering(self, style: str, keyword: str) -> bool:
-        """Check if text rendering is critical"""
         text_indicators = [
             'typography', 'text', 'quote', 'saying', 'words',
             'lettering', 'font', 'script', 'motivational',
@@ -147,7 +125,6 @@ class IntelligentModelSelector:
                any(ind in keyword for ind in text_indicators)
     
     def _select_by_style(self, style: str) -> str:
-        """Select model based on art style"""
         style_map = {
             'typography': 'ideogram-turbo',
             'photography': 'flux-pro',
@@ -163,59 +140,19 @@ class IntelligentModelSelector:
             if style_key in style:
                 return model
         
-        # Default based on budget mode
         if self.budget_mode == "cheap":
             return 'flux-schnell'
         elif self.budget_mode == "quality":
             return 'flux-pro'
         return 'flux-dev'
-    
-    def estimate_batch_cost(self, keywords: List[str], styles: List[str]) -> Dict:
-        """
-        Estimate total cost for batch generation
-        
-        Args:
-            keywords: List of keywords
-            styles: List of styles
-            
-        Returns:
-            Cost breakdown
-        """
-        total_cost = 0
-        breakdown = {}
-        
-        for keyword in keywords:
-            for style in styles:
-                selection = self.select_model(style, keyword)
-                key = f"{keyword[:20]}... - {style}"
-                breakdown[key] = {
-                    'model': selection['model_key'],
-                    'cost': selection['cost']
-                }
-                total_cost += selection['cost']
-        
-        return {
-            'total_cost': round(total_cost, 4),
-            'total_images': len(keywords) * len(styles),
-            'avg_cost': round(total_cost / (len(keywords) * len(styles)), 4),
-            'breakdown': breakdown
-        }
 
 
 class AIArtGenerator:
     """
     Multi-model AI art generation with intelligent model selection
-    Automatically chooses the best AI model for each generation
     """
     
     def __init__(self, testing_mode: bool = False, budget_mode: str = "balanced"):
-        """
-        Initialize AI Art Generator
-        
-        Args:
-            testing_mode: If True, force use FLUX-Schnell for all generations
-            budget_mode: "cheap" | "balanced" | "quality" - affects model selection
-        """
         self.api_token = os.getenv('REPLICATE_API_TOKEN')
         self.testing_mode = testing_mode
         self.budget_mode = budget_mode
@@ -224,24 +161,17 @@ class AIArtGenerator:
             logger.error("❌ REPLICATE_API_TOKEN not found in environment!")
             raise ValueError("Replicate API token required")
         
-        # Verify token format
         if not self.api_token.startswith('r8_'):
             logger.warning("⚠️ API token doesn't start with 'r8_' - might be invalid")
         
         os.environ['REPLICATE_API_TOKEN'] = self.api_token
         
-        # Initialize intelligent model selector
         self.model_selector = IntelligentModelSelector(budget_mode=budget_mode)
         
         mode = "TESTING (cheap)" if testing_mode else f"PRODUCTION ({budget_mode})"
         logger.info(f"✅ AI Generator initialized - Mode: {mode}")
     
     def get_model_for_style(self, style: ArtStyle, keyword: str) -> Dict:
-        """
-        Get the best model for a given art style and keyword
-        
-        Returns full selection details including reasoning
-        """
         if self.testing_mode:
             return {
                 'model_key': 'flux-schnell',
@@ -265,18 +195,8 @@ class AIArtGenerator:
         """
         Generate AI artwork with intelligent model selection
         
-        Args:
-            prompt: Text description of the image
-            style: Art style category
-            keyword: Main keyword (helps with model selection)
-            aspect_ratio: Image ratio (1:1, 16:9, 3:4, etc.)
-            width: Image width in pixels
-            height: Image height in pixels
-            
-        Returns:
-            Dict with image_url, model_used, style, prompt, and selection reasoning
+        CRITICAL FIX: Properly extract and return image URL
         """
-        # Get intelligent model selection
         model_selection = self.get_model_for_style(style, keyword)
         model_id = model_selection['model_id']
         model_key = model_selection['model_key']
@@ -287,7 +207,6 @@ class AIArtGenerator:
         logger.debug(f"📝 Prompt: {prompt[:100]}...")
         
         try:
-            # Run generation in thread pool (Replicate SDK is synchronous)
             loop = asyncio.get_event_loop()
             output = await loop.run_in_executor(
                 None,
@@ -300,16 +219,17 @@ class AIArtGenerator:
                 height
             )
             
-            # Extract image URL from output
-            if isinstance(output, list) and len(output) > 0:
-                image_url = str(output[0])
-            elif hasattr(output, 'url'):
-                image_url = str(output.url)
-            else:
-                image_url = str(output)
+            # ✅ CRITICAL FIX: Properly extract image URL
+            image_url = self._extract_image_url(output)
+            
+            if not image_url:
+                raise ValueError(f"Failed to extract image URL from output: {output}")
+            
+            logger.info(f"✅ Image generated successfully!")
+            logger.info(f"🔗 URL: {image_url[:100]}...")
             
             result = {
-                'image_url': image_url,
+                'image_url': image_url,  # ✅ This is the actual URL string
                 'model_used': model_id,
                 'model_key': model_key,
                 'style': style,
@@ -322,14 +242,57 @@ class AIArtGenerator:
                 'selection_reasoning': model_selection['reasoning']
             }
             
-            logger.info(f"✅ Image generated successfully!")
-            logger.debug(f"🔗 URL: {image_url[:80]}...")
-            
             return result
             
         except Exception as e:
             logger.error(f"❌ Error generating image: {e}")
+            logger.exception("Full traceback:")
             raise
+    
+    def _extract_image_url(self, output) -> str:
+        """
+        ✅ CRITICAL FIX: Extract image URL from various output formats
+        """
+        logger.debug(f"🔍 Extracting URL from output type: {type(output)}")
+        logger.debug(f"🔍 Output value: {output}")
+        
+        # Case 1: List with URL string
+        if isinstance(output, list) and len(output) > 0:
+            url = str(output[0])
+            logger.debug(f"✅ Extracted from list: {url}")
+            return url
+        
+        # Case 2: Direct URL string
+        if isinstance(output, str):
+            logger.debug(f"✅ Direct string: {output}")
+            return output
+        
+        # Case 3: Object with url attribute
+        if hasattr(output, 'url'):
+            url = str(output.url)
+            logger.debug(f"✅ From .url attribute: {url}")
+            return url
+        
+        # Case 4: Dict with url key
+        if isinstance(output, dict) and 'url' in output:
+            url = str(output['url'])
+            logger.debug(f"✅ From dict['url']: {url}")
+            return url
+        
+        # Case 5: FileOutput object (Replicate's type)
+        if hasattr(output, '__iter__') and not isinstance(output, (str, bytes)):
+            try:
+                first_item = next(iter(output))
+                url = str(first_item)
+                logger.debug(f"✅ From iterator: {url}")
+                return url
+            except:
+                pass
+        
+        # Fallback: Convert to string
+        url = str(output)
+        logger.warning(f"⚠️ Fallback string conversion: {url}")
+        return url
     
     def _generate_sync(
         self,
@@ -342,9 +305,9 @@ class AIArtGenerator:
     ):
         """Synchronous generation (runs in executor)"""
         
-        # Different models have different parameters
+        logger.debug(f"🔧 Starting sync generation with model: {model_id}")
+        
         if 'flux-schnell' in model_id:
-            # FLUX-Schnell - Fast and cheap
             logger.debug("Using FLUX-Schnell (4 steps, fast)")
             output = replicate.run(
                 model_id,
@@ -358,7 +321,6 @@ class AIArtGenerator:
             )
             
         elif 'flux-dev' in model_id:
-            # FLUX-Dev - Good quality
             logger.debug("Using FLUX-Dev (balanced quality/speed)")
             output = replicate.run(
                 model_id,
@@ -373,7 +335,6 @@ class AIArtGenerator:
             )
             
         elif 'flux-1.1-pro' in model_id:
-            # FLUX-1.1-Pro - Best quality
             logger.debug("Using FLUX-1.1-Pro (premium quality)")
             output = replicate.run(
                 model_id,
@@ -388,7 +349,6 @@ class AIArtGenerator:
             )
             
         elif 'ideogram' in model_id:
-            # Ideogram v3 Turbo - Great for typography
             logger.debug("Using Ideogram v3 Turbo (text optimized)")
             output = replicate.run(
                 model_id,
@@ -401,7 +361,6 @@ class AIArtGenerator:
             )
             
         else:
-            # Generic fallback
             logger.debug(f"Using generic parameters for {model_id}")
             output = replicate.run(
                 model_id,
@@ -412,52 +371,8 @@ class AIArtGenerator:
                 }
             )
         
+        logger.debug(f"✅ Generation complete, output type: {type(output)}")
         return output
-    
-    async def upscale_image(
-        self,
-        image_url: str,
-        scale: int = 4
-    ) -> Dict:
-        """
-        Upscale image for print quality using Topaz Labs
-        
-        Args:
-            image_url: URL of image to upscale
-            scale: Upscale factor (2 or 4)
-            
-        Returns:
-            Dict with upscaled_url
-        """
-        logger.info(f"📈 Upscaling image {scale}x for print quality")
-        
-        try:
-            loop = asyncio.get_event_loop()
-            output = await loop.run_in_executor(
-                None,
-                replicate.run,
-                "topazlabs/image-upscale",
-                {
-                    "image": image_url,
-                    "scale": scale,
-                    "face_enhance": False
-                }
-            )
-            
-            upscaled_url = str(output) if not isinstance(output, list) else str(output[0])
-            
-            result = {
-                'upscaled_url': upscaled_url,
-                'scale': scale,
-                'upscaled_at': datetime.utcnow().isoformat()
-            }
-            
-            logger.info(f"✅ Image upscaled successfully to {scale}x")
-            return result
-            
-        except Exception as e:
-            logger.error(f"❌ Error upscaling image: {e}")
-            raise
     
     async def generate_product_artwork(
         self,
@@ -465,30 +380,17 @@ class AIArtGenerator:
         style: ArtStyle,
         upscale_for_print: bool = False
     ) -> Dict:
-        """
-        Complete workflow: Generate and optionally upscale
-        
-        Args:
-            keyword: Main keyword/trend
-            style: Art style to use
-            upscale_for_print: Whether to upscale to 4K
-            
-        Returns:
-            Complete artwork data with model selection details
-        """
+        """Complete workflow: Generate and optionally upscale"""
         from app.core.ai.prompt_templates import get_prompt_for_style
         
-        # Get optimized prompt for this style
         prompt_config = get_prompt_for_style(keyword, style)
         
-        # Generate base image with intelligent model selection
         result = await self.generate_image(
             prompt=prompt_config['prompt'],
             style=style,
             keyword=keyword
         )
         
-        # Upscale if needed for print
         if upscale_for_print:
             upscaled = await self.upscale_image(
                 result['image_url'],
@@ -500,62 +402,6 @@ class AIArtGenerator:
             result['print_ready'] = False
         
         return result
-    
-    async def batch_generate(
-        self,
-        keywords: List[str],
-        styles: List[ArtStyle],
-        upscale: bool = False
-    ) -> List[Dict]:
-        """
-        Generate multiple artworks in batch
-        
-        Args:
-            keywords: List of keywords/trends
-            styles: List of styles to generate for each
-            upscale: Whether to upscale all images
-            
-        Returns:
-            List of generated artworks with model selection details
-        """
-        results = []
-        total = len(keywords) * len(styles)
-        
-        logger.info(f"🚀 Starting batch generation: {len(keywords)} keywords × {len(styles)} styles = {total} images")
-        
-        # Show cost estimate
-        cost_estimate = self.model_selector.estimate_batch_cost(keywords, styles)
-        logger.info(f"💰 Estimated total cost: ${cost_estimate['total_cost']}")
-        logger.info(f"📊 Average cost per image: ${cost_estimate['avg_cost']}")
-        
-        for i, keyword in enumerate(keywords):
-            for j, style in enumerate(styles):
-                try:
-                    logger.info(f"Progress: {len(results)+1}/{total} - {keyword} ({style})")
-                    
-                    artwork = await self.generate_product_artwork(
-                        keyword=keyword,
-                        style=style,
-                        upscale_for_print=upscale
-                    )
-                    
-                    results.append(artwork)
-                    
-                    # Rate limiting - wait between generations
-                    if len(results) < total:
-                        await asyncio.sleep(1)
-                    
-                except Exception as e:
-                    logger.error(f"Failed to generate {keyword} ({style}): {e}")
-                    continue
-        
-        logger.info(f"✅ Batch complete: {len(results)}/{total} images generated")
-        
-        # Calculate actual costs
-        total_cost = sum(r.get('generation_cost', 0) for r in results)
-        logger.info(f"💰 Actual total cost: ${total_cost:.4f}")
-        
-        return results
 
 
 # Singleton instance
