@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { DollarSign, ShoppingCart, TrendingUp, Palette, AlertCircle, Play, RefreshCw, Zap } from 'lucide-react';
+import { DollarSign, ShoppingCart, TrendingUp, Palette, AlertCircle, Play, RefreshCw, Zap, Info, Brain } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 
 // --- Data Interfaces ---
@@ -32,15 +32,27 @@ interface GenerationStatus {
   trends_awaiting_generation: number;
 }
 
+interface ModelInfo {
+  intelligent_selection: boolean;
+  models: Record<string, any>;
+  budget_modes: Record<string, any>;
+}
+
 // --- Main Dashboard Component ---
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentProducts, setRecentProducts] = useState<Product[]>([]);
   const [genStatus, setGenStatus] = useState<GenerationStatus | null>(null);
+  const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isFetchingTrends, setIsFetchingTrends] = useState(false);
+  const [showModelInfo, setShowModelInfo] = useState(false);
+  
+  // Generation settings
+  const [budgetMode, setBudgetMode] = useState<'cheap' | 'balanced' | 'quality'>('balanced');
+  const [testingMode, setTestingMode] = useState(true);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app';
 
@@ -56,7 +68,7 @@ export default function DashboardPage() {
       setLoading(true);
       setError(null);
 
-      const [statsResponse, productsResponse, genStatusResponse] = await Promise.all([
+      const [statsResponse, productsResponse, genStatusResponse, modelInfoResponse] = await Promise.all([
         fetch(`${API_URL}/api/v1/analytics/dashboard`, {
           headers: { 'Accept': 'application/json' }
         }),
@@ -64,6 +76,9 @@ export default function DashboardPage() {
           headers: { 'Accept': 'application/json' }
         }),
         fetch(`${API_URL}/api/v1/generation/status`, {
+          headers: { 'Accept': 'application/json' }
+        }),
+        fetch(`${API_URL}/api/v1/generation/model-info`, {
           headers: { 'Accept': 'application/json' }
         })
       ]);
@@ -75,6 +90,7 @@ export default function DashboardPage() {
       const statsData = await statsResponse.json();
       const productsData = await productsResponse.json();
       const genStatusData = await genStatusResponse.json();
+      const modelInfoData = modelInfoResponse.ok ? await modelInfoResponse.json() : null;
 
       setStats({
         revenue: statsData.revenue || 0,
@@ -85,6 +101,7 @@ export default function DashboardPage() {
       
       setRecentProducts(productsData.products || []);
       setGenStatus(genStatusData);
+      setModelInfo(modelInfoData);
 
       toast.success("Dashboard updated!");
 
@@ -124,12 +141,50 @@ export default function DashboardPage() {
     }
   };
 
+  // Estimate generation cost
+  const estimateCost = async () => {
+    if (!API_URL) return;
+
+    toast.info("Calculating cost estimate...");
+
+    try {
+      const response = await fetch(`${API_URL}/api/v1/generation/estimate-cost`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          limit: 2,
+          min_trend_score: 6.0,
+          testing_mode: testingMode,
+          budget_mode: budgetMode,
+          upscale: false
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to estimate cost');
+
+      const data = await response.json();
+      
+      toast.success(
+        `Cost Estimate:\n${data.total_products} products = ${data.estimated_total_cost}\nMode: ${data.mode}`,
+        { duration: 5000 }
+      );
+
+    } catch (err: any) {
+      toast.error(`Estimation failed: ${err.message}`);
+    }
+  };
+
   // Generate Products
   const generateProducts = async () => {
     if (!API_URL) return;
 
     setIsGenerating(true);
-    toast.info("Starting product generation...");
+    
+    const modeLabel = testingMode ? 'Testing' : budgetMode;
+    toast.info(`Starting product generation in ${modeLabel} mode...`);
 
     try {
       const response = await fetch(`${API_URL}/api/v1/generation/batch-generate`, {
@@ -141,7 +196,8 @@ export default function DashboardPage() {
         body: JSON.stringify({
           limit: 2,
           min_trend_score: 6.0,
-          testing_mode: true,
+          testing_mode: testingMode,
+          budget_mode: budgetMode,
           upscale: false
         })
       });
@@ -149,7 +205,10 @@ export default function DashboardPage() {
       if (!response.ok) throw new Error('Generation failed');
 
       const data = await response.json();
-      toast.success(`Generating ${data.expected_products} products!`);
+      toast.success(
+        `Generating ${data.expected_products} products!\nCost: ${data.estimated_cost}\n${data.cost_note}`,
+        { duration: 8000 }
+      );
       
       // Refresh dashboard after 30 seconds
       setTimeout(fetchData, 30000);
@@ -196,8 +255,11 @@ export default function DashboardPage() {
         {/* Header with Action Buttons */}
         <header className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold">AI POD Dashboard</h1>
-            <p className="text-muted-foreground">Automated Print-on-Demand Platform</p>
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              <Brain className="h-8 w-8 text-primary" />
+              AI POD Dashboard
+            </h1>
+            <p className="text-muted-foreground">Intelligent Model Selection • Automated Print-on-Demand</p>
           </div>
           <div className="flex gap-2">
             <Button 
@@ -217,30 +279,135 @@ export default function DashboardPage() {
               Fetch Trends
             </Button>
             <Button 
-              onClick={generateProducts}
-              disabled={isGenerating || (genStatus?.trends_awaiting_generation || 0) === 0}
+              onClick={() => setShowModelInfo(!showModelInfo)}
+              variant="outline"
             >
-              <Zap className={`h-4 w-4 mr-2 ${isGenerating ? 'animate-pulse' : ''}`} />
-              Generate Products
+              <Info className="h-4 w-4 mr-2" />
+              Model Info
             </Button>
           </div>
         </header>
 
-        {/* Generation Status Alert */}
-        {genStatus && genStatus.trends_awaiting_generation > 0 && (
+        {/* Intelligent Model Selection Info Card */}
+        {showModelInfo && modelInfo && (
           <Card className="border-blue-500 bg-blue-50 dark:bg-blue-950">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Brain className="h-5 w-5" />
+                Intelligent AI Model Selection
+              </CardTitle>
+              <CardDescription>
+                System automatically selects the best AI model for each art style
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {Object.entries(modelInfo.models).map(([key, model]: [string, any]) => (
+                  <div key={key} className="p-3 bg-background rounded-lg">
+                    <h4 className="font-semibold text-sm mb-2">{key}</h4>
+                    <div className="text-xs space-y-1">
+                      <p>Cost: ${model.cost}</p>
+                      <p>Quality: {model.quality}</p>
+                      <p>Speed: {model.speed}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Generation Controls */}
+        {genStatus && genStatus.trends_awaiting_generation > 0 && (
+          <Card className="border-primary">
+            <CardHeader>
+              <CardTitle>Generate Products with Intelligent AI Selection</CardTitle>
+              <CardDescription>
+                {genStatus.trends_awaiting_generation} trends ready • System will automatically choose the best AI model for each style
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <p className="font-semibold">Ready to Generate!</p>
-                  <p className="text-sm text-muted-foreground">
-                    {genStatus.trends_awaiting_generation} trends are waiting for product generation
-                  </p>
+                  <label className="text-sm font-medium mb-2 block">Mode</label>
+                  <div className="flex gap-2">
+                    <Button
+                      variant={testingMode ? "default" : "outline"}
+                      onClick={() => setTestingMode(true)}
+                      size="sm"
+                    >
+                      Testing
+                    </Button>
+                    <Button
+                      variant={!testingMode ? "default" : "outline"}
+                      onClick={() => setTestingMode(false)}
+                      size="sm"
+                    >
+                      Production
+                    </Button>
+                  </div>
                 </div>
-                <Button onClick={generateProducts} disabled={isGenerating}>
-                  <Play className="h-4 w-4 mr-2" />
-                  Generate Now
-                </Button>
+                
+                {!testingMode && (
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Budget Mode</label>
+                    <div className="flex gap-2">
+                      <Button
+                        variant={budgetMode === 'cheap' ? "default" : "outline"}
+                        onClick={() => setBudgetMode('cheap')}
+                        size="sm"
+                      >
+                        Cheap
+                      </Button>
+                      <Button
+                        variant={budgetMode === 'balanced' ? "default" : "outline"}
+                        onClick={() => setBudgetMode('balanced')}
+                        size="sm"
+                      >
+                        Balanced
+                      </Button>
+                      <Button
+                        variant={budgetMode === 'quality' ? "default" : "outline"}
+                        onClick={() => setBudgetMode('quality')}
+                        size="sm"
+                      >
+                        Quality
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="flex items-end gap-2">
+                  <Button 
+                    onClick={estimateCost}
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                  >
+                    <DollarSign className="h-4 w-4 mr-1" />
+                    Estimate
+                  </Button>
+                  <Button 
+                    onClick={generateProducts}
+                    disabled={isGenerating}
+                    size="sm"
+                    className="flex-1"
+                  >
+                    <Zap className={`h-4 w-4 mr-1 ${isGenerating ? 'animate-pulse' : ''}`} />
+                    Generate
+                  </Button>
+                </div>
+              </div>
+              
+              <div className="text-sm text-muted-foreground space-y-1">
+                <p>• Testing: All FLUX Schnell (~$0.024 for 8 products)</p>
+                {!testingMode && (
+                  <>
+                    <p>• Cheap: All FLUX Schnell (~$0.024 for 8 products)</p>
+                    <p>• Balanced: Smart mix (~$0.20 for 8 products) ⭐ Recommended</p>
+                    <p>• Quality: Premium models (~$0.28 for 8 products)</p>
+                  </>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -342,7 +509,7 @@ export default function DashboardPage() {
                   ) : (
                     <TableRow>
                       <TableCell colSpan={3} className="text-center text-muted-foreground">
-                        No products yet. Click "Generate Products" to create some!
+                        No products yet. Click "Generate" to create some!
                       </TableCell>
                     </TableRow>
                   )}
