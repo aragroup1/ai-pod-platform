@@ -42,7 +42,7 @@ export default function DashboardPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isFetchingTrends, setIsFetchingTrends] = useState(false);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL;
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app';
 
   // Fetch dashboard data
   const fetchData = async () => {
@@ -57,9 +57,15 @@ export default function DashboardPage() {
       setError(null);
 
       const [statsResponse, productsResponse, genStatusResponse] = await Promise.all([
-        fetch(`${API_URL}/api/v1/analytics/dashboard`),
-        fetch(`${API_URL}/api/v1/products?limit=5`),
-        fetch(`${API_URL}/api/v1/generation/status`)
+        fetch(`${API_URL}/api/v1/analytics/dashboard`, {
+          headers: { 'Accept': 'application/json' }
+        }),
+        fetch(`${API_URL}/api/v1/products/?limit=5`, {
+          headers: { 'Accept': 'application/json' }
+        }),
+        fetch(`${API_URL}/api/v1/generation/status`, {
+          headers: { 'Accept': 'application/json' }
+        })
       ]);
 
       if (!statsResponse.ok || !productsResponse.ok || !genStatusResponse.ok) {
@@ -99,7 +105,8 @@ export default function DashboardPage() {
 
     try {
       const response = await fetch(`${API_URL}/api/v1/trends/fetch?region=GB`, {
-        method: 'POST'
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
       });
 
       if (!response.ok) throw new Error('Failed to fetch trends');
@@ -127,7 +134,10 @@ export default function DashboardPage() {
     try {
       const response = await fetch(`${API_URL}/api/v1/generation/batch-generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
         body: JSON.stringify({
           limit: 2,
           min_trend_score: 6.0,
@@ -153,7 +163,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchData();
-  }, [API_URL]);
+  }, []);
 
   if (error) {
     return (
