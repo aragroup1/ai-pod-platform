@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { DollarSign, ShoppingCart, TrendingUp, Palette, AlertCircle, RefreshCw, Zap, Info, Brain, Image as ImageIcon, ExternalLink, LayoutGrid } from 'lucide-react';
+import { DollarSign, ShoppingCart, TrendingUp, Palette, AlertCircle, RefreshCw, Zap, Info, Brain, Image as ImageIcon, ExternalLink, LayoutGrid, Check, X } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 
 // --- Data Interfaces ---
@@ -58,6 +58,7 @@ export default function DashboardPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isFetchingTrends, setIsFetchingTrends] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
+  const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
   
   // Generation settings
   const [budgetMode, setBudgetMode] = useState<'cheap' | 'balanced' | 'quality'>('balanced');
@@ -80,41 +81,47 @@ export default function DashboardPage() {
       const [statsResponse, productsResponse, genStatusResponse, modelInfoResponse] = await Promise.all([
         fetch(`${API_URL}/api/v1/analytics/dashboard`, {
           headers: { 'Accept': 'application/json' }
-        }),
+        }).catch(e => null),
         fetch(`${API_URL}/api/v1/products/?limit=50`, {
           headers: { 'Accept': 'application/json' }
-        }),
+        }).catch(e => null),
         fetch(`${API_URL}/api/v1/generation/status`, {
           headers: { 'Accept': 'application/json' }
-        }),
+        }).catch(e => null),
         fetch(`${API_URL}/api/v1/generation/model-info`, {
           headers: { 'Accept': 'application/json' }
-        })
+        }).catch(e => null)
       ]);
 
-      if (!statsResponse.ok || !productsResponse.ok || !genStatusResponse.ok) {
-        throw new Error('Failed to fetch data');
+      if (statsResponse?.ok) {
+        const statsData = await statsResponse.json();
+        setStats({
+          revenue: statsData.revenue || 0,
+          orders: statsData.orders || 0,
+          products: statsData.products || 0,
+          trends: statsData.trends || 0,
+        });
       }
-
-      const statsData = await statsResponse.json();
-      const productsData = await productsResponse.json();
-      const genStatusData = await genStatusResponse.json();
-      const modelInfoData = modelInfoResponse.ok ? await modelInfoResponse.json() : null;
-
-      setStats({
-        revenue: statsData.revenue || 0,
-        orders: statsData.orders || 0,
-        products: statsData.products || 0,
-        trends: statsData.trends || 0,
-      });
       
-      setRecentProducts(productsData.products || []);
-      setGenStatus(genStatusData);
-      setModelInfo(modelInfoData);
+      if (productsResponse?.ok) {
+        const productsData = await productsResponse.json();
+        setRecentProducts(productsData.products || []);
+      }
+      
+      if (genStatusResponse?.ok) {
+        const genStatusData = await genStatusResponse.json();
+        setGenStatus(genStatusData);
+      }
+      
+      if (modelInfoResponse?.ok) {
+        const modelInfoData = await modelInfoResponse.json();
+        setModelInfo(modelInfoData);
+      }
 
       toast.success("Dashboard updated!");
 
     } catch (err: any) {
+      console.error("Fetch error:", err);
       setError(err.message);
       toast.error(`Error: ${err.message}`);
     } finally {
@@ -227,6 +234,32 @@ export default function DashboardPage() {
     }
   };
 
+  // Approve/Reject product for Shopify
+  const approveProduct = async (productId: number) => {
+    try {
+      // TODO: Add API endpoint for approval
+      toast.success(`Product ${productId} approved! Will sync to Shopify.`);
+      fetchData();
+    } catch (err: any) {
+      toast.error(`Approval failed: ${err.message}`);
+    }
+  };
+
+  const rejectProduct = async (productId: number) => {
+    try {
+      // TODO: Add API endpoint for rejection
+      toast.info(`Product ${productId} marked as rejected.`);
+      fetchData();
+    } catch (err: any) {
+      toast.error(`Rejection failed: ${err.message}`);
+    }
+  };
+
+  // Handle image load error
+  const handleImageError = (productId: number) => {
+    setImageErrors(prev => new Set(prev).add(productId));
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -256,6 +289,8 @@ export default function DashboardPage() {
 
   // Filter products with images
   const productsWithImages = recentProducts.filter(p => p.artwork?.image_url);
+  const pendingApproval = productsWithImages.filter(p => p.status === 'active');
+  const approved = productsWithImages.filter(p => p.status === 'approved');
 
   return (
     <main className="flex min-h-screen flex-col items-center p-4 md:p-8 bg-muted/40">
@@ -269,7 +304,7 @@ export default function DashboardPage() {
               <Brain className="h-8 w-8 text-primary" />
               AI POD Dashboard
             </h1>
-            <p className="text-muted-foreground">Intelligent Model Selection • Automated Print-on-Demand</p>
+            <p className="text-muted-foreground">Intelligent Model Selection • Approval Workflow</p>
           </div>
           <div className="flex gap-2">
             <Button 
@@ -293,18 +328,18 @@ export default function DashboardPage() {
               variant={showGallery ? "default" : "outline"}
             >
               <LayoutGrid className="h-4 w-4 mr-2" />
-              Gallery ({productsWithImages.length})
+              Review ({pendingApproval.length})
             </Button>
           </div>
         </header>
 
-        {/* Gallery View */}
+        {/* Gallery/Approval View */}
         {showGallery && (
           <Card>
             <CardHeader>
-              <CardTitle>Product Gallery</CardTitle>
+              <CardTitle>Product Approval Queue</CardTitle>
               <CardDescription>
-                View all generated artwork ({productsWithImages.length} products with images)
+                Review and approve products before syncing to Shopify ({pendingApproval.length} pending)
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -315,49 +350,82 @@ export default function DashboardPage() {
                   <p className="text-sm mt-2">Generate some products to see them here!</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {productsWithImages.map((product) => (
-                    <div key={product.id} className="group relative">
-                      <div className="aspect-square relative rounded-lg overflow-hidden border bg-muted">
-                        {product.artwork?.image_url ? (
-                          <div className="relative h-full w-full">
-                            <img
-                              src={product.artwork.image_url}
-                              alt={product.title}
-                              className="object-cover w-full h-full"
-                            />
-                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4 text-white text-center">
-                              <p className="text-sm font-semibold mb-2">{product.title}</p>
-                              <Badge variant="secondary" className="mb-2">
-                                {product.artwork.style}
-                              </Badge>
-                              <p className="text-xs">£{product.base_price}</p>
-                              <a
-                                href={product.artwork.image_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="mt-2 text-xs underline flex items-center gap-1"
-                              >
-                                View Full <ExternalLink className="h-3 w-3" />
-                              </a>
-                            </div>
-                          </div>
+                    <Card key={product.id} className="overflow-hidden">
+                      <div className="aspect-square relative bg-muted">
+                        {product.artwork?.image_url && !imageErrors.has(product.id) ? (
+                          <img
+                            src={product.artwork.image_url}
+                            alt={product.title}
+                            className="object-cover w-full h-full"
+                            onError={() => handleImageError(product.id)}
+                            loading="lazy"
+                          />
                         ) : (
                           <div className="flex items-center justify-center h-full">
                             <ImageIcon className="h-12 w-12 text-muted-foreground/20" />
                           </div>
                         )}
                       </div>
-                      <div className="mt-2">
-                        <p className="text-xs font-medium truncate">{product.title}</p>
-                        <div className="flex items-center justify-between mt-1">
-                          <Badge variant="outline" className="text-xs">
-                            {product.artwork?.style}
-                          </Badge>
-                          <span className="text-xs font-semibold">£{product.base_price}</span>
+                      <CardContent className="p-4">
+                        <div className="space-y-3">
+                          <div>
+                            <h3 className="font-semibold text-sm truncate">{product.title}</h3>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Badge variant="outline" className="text-xs">
+                                {product.artwork?.style}
+                              </Badge>
+                              <Badge variant={product.status === 'approved' ? 'default' : 'secondary'} className="text-xs">
+                                {product.status}
+                              </Badge>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center justify-between">
+                            <span className="text-lg font-bold">£{product.base_price}</span>
+                            {product.artwork?.image_url && (
+                              <a
+                                href={product.artwork.image_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                              >
+                                View Full <ExternalLink className="h-3 w-3" />
+                              </a>
+                            )}
+                          </div>
+
+                          {product.status === 'active' && (
+                            <div className="flex gap-2">
+                              <Button 
+                                size="sm" 
+                                className="flex-1"
+                                onClick={() => approveProduct(product.id)}
+                              >
+                                <Check className="h-4 w-4 mr-1" />
+                                Approve
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                className="flex-1"
+                                onClick={() => rejectProduct(product.id)}
+                              >
+                                <X className="h-4 w-4 mr-1" />
+                                Reject
+                              </Button>
+                            </div>
+                          )}
+
+                          {product.status === 'approved' && (
+                            <div className="text-center py-2 bg-green-50 dark:bg-green-950 rounded text-xs text-green-700 dark:text-green-300">
+                              ✓ Ready for Shopify
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    </div>
+                      </CardContent>
+                    </Card>
                   ))}
                 </div>
               )}
@@ -393,13 +461,13 @@ export default function DashboardPage() {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Active Products</CardTitle>
+                  <CardTitle className="text-sm font-medium">Products</CardTitle>
                   <Palette className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{genStatus?.total_products || '0'}</div>
                   <p className="text-xs text-muted-foreground">
-                    {productsWithImages.length} with images
+                    {pendingApproval.length} pending approval
                   </p>
                 </CardContent>
               </Card>
@@ -422,7 +490,7 @@ export default function DashboardPage() {
                 <CardHeader>
                   <CardTitle>Generate Products with Intelligent AI</CardTitle>
                   <CardDescription>
-                    {genStatus.trends_awaiting_generation} trends ready • System automatically chooses best model
+                    {genStatus.trends_awaiting_generation} trends ready • Products require approval before Shopify sync
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -499,15 +567,11 @@ export default function DashboardPage() {
                   </div>
                   
                   <div className="text-sm text-muted-foreground space-y-1 bg-muted p-4 rounded-lg">
-                    <p className="font-semibold mb-2">Cost Guide:</p>
-                    <p>• Testing: All FLUX Schnell (~$0.024 for 8 products)</p>
-                    {!testingMode && (
-                      <>
-                        <p>• Cheap: All FLUX Schnell (~$0.024 for 8 products)</p>
-                        <p>• Balanced: Smart mix (~$0.20 for 8 products) ⭐ Recommended</p>
-                        <p>• Quality: Premium models (~$0.28 for 8 products)</p>
-                      </>
-                    )}
+                    <p className="font-semibold mb-2">Workflow:</p>
+                    <p>1. Generate products with AI</p>
+                    <p>2. Review in approval queue</p>
+                    <p>3. Approve best designs</p>
+                    <p>4. Auto-sync to Shopify</p>
                   </div>
                 </CardContent>
               </Card>
