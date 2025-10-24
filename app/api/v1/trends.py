@@ -9,7 +9,7 @@ from app.core.trends.service import TrendService
 router = APIRouter()
 
 
-@router.get("")
+@router.get("/")
 async def get_trends(
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
