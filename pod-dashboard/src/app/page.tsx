@@ -59,10 +59,11 @@ export default function DashboardPage() {
   const [isFetchingTrends, setIsFetchingTrends] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
+  const [debugInfo, setDebugInfo] = useState<string>('');
   
   // Generation settings
   const [budgetMode, setBudgetMode] = useState<'cheap' | 'balanced' | 'quality'>('balanced');
-  const [testingMode, setTestingMode] = useState(false);
+  const [testingMode, setTestingMode] = useState(true); // Start in testing mode
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app';
 
@@ -77,39 +78,48 @@ export default function DashboardPage() {
     try {
       setLoading(true);
       setError(null);
+      let debugLog = `Fetching from: ${API_URL}\n\n`;
 
       const [statsResponse, productsResponse, genStatusResponse, modelInfoResponse] = await Promise.all([
         fetch(`${API_URL}/api/v1/analytics/dashboard`, {
           headers: { 'Accept': 'application/json' }
-        }).catch(e => null),
+        }).catch(e => { debugLog += `Stats error: ${e}\n`; return null; }),
         fetch(`${API_URL}/api/v1/products/?limit=50`, {
           headers: { 'Accept': 'application/json' }
-        }).catch(e => null),
+        }).catch(e => { debugLog += `Products error: ${e}\n`; return null; }),
         fetch(`${API_URL}/api/v1/generation/status`, {
           headers: { 'Accept': 'application/json' }
-        }).catch(e => null),
+        }).catch(e => { debugLog += `Gen status error: ${e}\n`; return null; }),
         fetch(`${API_URL}/api/v1/generation/model-info`, {
           headers: { 'Accept': 'application/json' }
-        }).catch(e => null)
+        }).catch(e => { debugLog += `Model info error: ${e}\n`; return null; })
       ]);
 
       if (statsResponse?.ok) {
         const statsData = await statsResponse.json();
+        debugLog += `Stats: ${JSON.stringify(statsData)}\n\n`;
         setStats({
           revenue: statsData.revenue || 0,
           orders: statsData.orders || 0,
           products: statsData.products || 0,
           trends: statsData.trends || 0,
         });
+      } else {
+        debugLog += `Stats failed: ${statsResponse?.status}\n`;
       }
       
       if (productsResponse?.ok) {
         const productsData = await productsResponse.json();
+        debugLog += `Products count: ${productsData.products?.length || 0}\n`;
+        debugLog += `First product: ${JSON.stringify(productsData.products?.[0])}\n\n`;
         setRecentProducts(productsData.products || []);
+      } else {
+        debugLog += `Products failed: ${productsResponse?.status}\n`;
       }
       
       if (genStatusResponse?.ok) {
         const genStatusData = await genStatusResponse.json();
+        debugLog += `Gen Status: ${JSON.stringify(genStatusData)}\n\n`;
         setGenStatus(genStatusData);
       }
       
@@ -118,12 +128,14 @@ export default function DashboardPage() {
         setModelInfo(modelInfoData);
       }
 
+      setDebugInfo(debugLog);
       toast.success("Dashboard updated!");
 
     } catch (err: any) {
       console.error("Fetch error:", err);
       setError(err.message);
       toast.error(`Error: ${err.message}`);
+      setDebugInfo(prev => prev + `\nCatch error: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -237,7 +249,6 @@ export default function DashboardPage() {
   // Approve/Reject product for Shopify
   const approveProduct = async (productId: number) => {
     try {
-      // TODO: Add API endpoint for approval
       toast.success(`Product ${productId} approved! Will sync to Shopify.`);
       fetchData();
     } catch (err: any) {
@@ -247,7 +258,6 @@ export default function DashboardPage() {
 
   const rejectProduct = async (productId: number) => {
     try {
-      // TODO: Add API endpoint for rejection
       toast.info(`Product ${productId} marked as rejected.`);
       fetchData();
     } catch (err: any) {
@@ -328,18 +338,32 @@ export default function DashboardPage() {
               variant={showGallery ? "default" : "outline"}
             >
               <LayoutGrid className="h-4 w-4 mr-2" />
-              Review ({pendingApproval.length})
+              Gallery ({productsWithImages.length})
             </Button>
           </div>
         </header>
+
+        {/* Debug Info Card - Shows API responses */}
+        {debugInfo && (
+          <Card className="border-blue-500">
+            <CardHeader>
+              <CardTitle className="text-sm">Debug Info</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <pre className="text-xs overflow-auto max-h-40 bg-muted p-2 rounded">
+                {debugInfo}
+              </pre>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Gallery/Approval View */}
         {showGallery && (
           <Card>
             <CardHeader>
-              <CardTitle>Product Approval Queue</CardTitle>
+              <CardTitle>Product Gallery</CardTitle>
               <CardDescription>
-                Review and approve products before syncing to Shopify ({pendingApproval.length} pending)
+                All products with images ({productsWithImages.length} total, {pendingApproval.length} pending approval)
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -348,6 +372,9 @@ export default function DashboardPage() {
                   <ImageIcon className="h-16 w-16 mx-auto mb-4 opacity-20" />
                   <p>No products with images yet.</p>
                   <p className="text-sm mt-2">Generate some products to see them here!</p>
+                  <Button onClick={generateProducts} className="mt-4">
+                    Generate Test Products
+                  </Button>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -484,98 +511,97 @@ export default function DashboardPage() {
               </Card>
             </div>
 
-            {/* Generation Controls */}
-            {genStatus && genStatus.trends_awaiting_generation > 0 && (
-              <Card className="border-primary">
-                <CardHeader>
-                  <CardTitle>Generate Products with Intelligent AI</CardTitle>
-                  <CardDescription>
-                    {genStatus.trends_awaiting_generation} trends ready • Products require approval before Shopify sync
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">Mode</label>
-                      <div className="flex gap-2">
-                        <Button
-                          variant={testingMode ? "default" : "outline"}
-                          onClick={() => setTestingMode(true)}
-                          size="sm"
-                        >
-                          Testing
-                        </Button>
-                        <Button
-                          variant={!testingMode ? "default" : "outline"}
-                          onClick={() => setTestingMode(false)}
-                          size="sm"
-                        >
-                          Production
-                        </Button>
-                      </div>
-                    </div>
-                    
-                    {!testingMode && (
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">Budget Mode</label>
-                        <div className="flex gap-2">
-                          <Button
-                            variant={budgetMode === 'cheap' ? "default" : "outline"}
-                            onClick={() => setBudgetMode('cheap')}
-                            size="sm"
-                          >
-                            Cheap
-                          </Button>
-                          <Button
-                            variant={budgetMode === 'balanced' ? "default" : "outline"}
-                            onClick={() => setBudgetMode('balanced')}
-                            size="sm"
-                          >
-                            Balanced
-                          </Button>
-                          <Button
-                            variant={budgetMode === 'quality' ? "default" : "outline"}
-                            onClick={() => setBudgetMode('quality')}
-                            size="sm"
-                          >
-                            Quality
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                    
-                    <div className="flex items-end gap-2">
-                      <Button 
-                        onClick={estimateCost}
-                        variant="outline"
+            {/* Generation Controls - ALWAYS VISIBLE NOW */}
+            <Card className="border-primary">
+              <CardHeader>
+                <CardTitle>Generate Products with Intelligent AI</CardTitle>
+                <CardDescription>
+                  {genStatus ? `${genStatus.trends_awaiting_generation} trends ready • ` : ''}
+                  Products require approval before Shopify sync
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Mode</label>
+                    <div className="flex gap-2">
+                      <Button
+                        variant={testingMode ? "default" : "outline"}
+                        onClick={() => setTestingMode(true)}
                         size="sm"
-                        className="flex-1"
                       >
-                        <DollarSign className="h-4 w-4 mr-1" />
-                        Estimate
+                        Testing
                       </Button>
-                      <Button 
-                        onClick={generateProducts}
-                        disabled={isGenerating}
+                      <Button
+                        variant={!testingMode ? "default" : "outline"}
+                        onClick={() => setTestingMode(false)}
                         size="sm"
-                        className="flex-1"
                       >
-                        <Zap className={`h-4 w-4 mr-1 ${isGenerating ? 'animate-pulse' : ''}`} />
-                        Generate
+                        Production
                       </Button>
                     </div>
                   </div>
                   
-                  <div className="text-sm text-muted-foreground space-y-1 bg-muted p-4 rounded-lg">
-                    <p className="font-semibold mb-2">Workflow:</p>
-                    <p>1. Generate products with AI</p>
-                    <p>2. Review in approval queue</p>
-                    <p>3. Approve best designs</p>
-                    <p>4. Auto-sync to Shopify</p>
+                  {!testingMode && (
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">Budget Mode</label>
+                      <div className="flex gap-2">
+                        <Button
+                          variant={budgetMode === 'cheap' ? "default" : "outline"}
+                          onClick={() => setBudgetMode('cheap')}
+                          size="sm"
+                        >
+                          Cheap
+                        </Button>
+                        <Button
+                          variant={budgetMode === 'balanced' ? "default" : "outline"}
+                          onClick={() => setBudgetMode('balanced')}
+                          size="sm"
+                        >
+                          Balanced
+                        </Button>
+                        <Button
+                          variant={budgetMode === 'quality' ? "default" : "outline"}
+                          onClick={() => setBudgetMode('quality')}
+                          size="sm"
+                        >
+                          Quality
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="flex items-end gap-2">
+                    <Button 
+                      onClick={estimateCost}
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                    >
+                      <DollarSign className="h-4 w-4 mr-1" />
+                      Estimate
+                    </Button>
+                    <Button 
+                      onClick={generateProducts}
+                      disabled={isGenerating}
+                      size="sm"
+                      className="flex-1"
+                    >
+                      <Zap className={`h-4 w-4 mr-1 ${isGenerating ? 'animate-pulse' : ''}`} />
+                      Generate
+                    </Button>
                   </div>
-                </CardContent>
-              </Card>
-            )}
+                </div>
+                
+                <div className="text-sm text-muted-foreground space-y-1 bg-muted p-4 rounded-lg">
+                  <p className="font-semibold mb-2">Workflow:</p>
+                  <p>1. Generate products with AI</p>
+                  <p>2. Review in gallery view</p>
+                  <p>3. Approve best designs</p>
+                  <p>4. Auto-sync to Shopify</p>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Chart */}
             <Card>
