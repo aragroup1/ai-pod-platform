@@ -1,317 +1,195 @@
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks
 from typing import Optional, List
 from loguru import logger
 import json
 
 from app.database import DatabasePool
 from app.dependencies import get_db_pool
+from app.core.trends.service import TrendService
 
 router = APIRouter()
 
 
 @router.get("/")
-async def get_products(
-    limit: int = Query(default=10, ge=1, le=100),
+async def get_trends(
+    limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    status: Optional[str] = None,
+    min_score: float = Query(default=0.0, ge=0.0, le=10.0),
+    category: Optional[str] = None,
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
     """
-    Get products with artwork
-    
-    ✅ FIXED: Removed updated_at column reference
+    Get stored trends from database
     """
     try:
-        logger.info(f"Fetching products with limit={limit}, offset={offset}, status={status}")
+        logger.info(f"Fetching trends with limit={limit}, offset={offset}, min_score={min_score}")
         
-        # Build query based on status filter
-        if status:
+        # Build query
+        if category:
             query = """
-                SELECT 
-                    p.id, p.sku, p.title, p.description, 
-                    p.base_price, p.status, p.category, p.tags,
-                    p.created_at,
-                    a.id as artwork_id,
-                    a.image_url, a.style, a.provider,
-                    a.quality_score, a.generation_cost,
-                    a.metadata
-                FROM products p
-                LEFT JOIN artwork a ON p.artwork_id = a.id
-                WHERE p.status = $1::product_status
-                ORDER BY p.created_at DESC
-                LIMIT $2 OFFSET $3
+                SELECT id, keyword, search_volume, trend_score, 
+                       geography, category, created_at, data
+                FROM trends
+                WHERE trend_score >= $1 AND category = $2
+                ORDER BY trend_score DESC, created_at DESC
+                LIMIT $3 OFFSET $4
             """
-            products = await db_pool.fetch(query, status, limit, offset)
+            trends = await db_pool.fetch(query, min_score, category, limit, offset)
         else:
             query = """
-                SELECT 
-                    p.id, p.sku, p.title, p.description, 
-                    p.base_price, p.status, p.category, p.tags,
-                    p.created_at,
-                    a.id as artwork_id,
-                    a.image_url, a.style, a.provider,
-                    a.quality_score, a.generation_cost,
-                    a.metadata
-                FROM products p
-                LEFT JOIN artwork a ON p.artwork_id = a.id
-                ORDER BY p.created_at DESC
-                LIMIT $1 OFFSET $2
+                SELECT id, keyword, search_volume, trend_score, 
+                       geography, category, created_at, data
+                FROM trends
+                WHERE trend_score >= $1
+                ORDER BY trend_score DESC, created_at DESC
+                LIMIT $2 OFFSET $3
             """
-            products = await db_pool.fetch(query, limit, offset)
+            trends = await db_pool.fetch(query, min_score, limit, offset)
         
-        # ✅ CRITICAL FIX: Properly serialize products with JSON metadata
-        products_list = []
-        for p in products:
-            try:
-                # Parse metadata if it's a JSON string
-                metadata = p["metadata"]
-                if isinstance(metadata, str):
-                    try:
-                        metadata = json.loads(metadata)
-                    except json.JSONDecodeError:
-                        metadata = {}
-                elif metadata is None:
-                    metadata = {}
-                
-                # Build artwork object
-                artwork = None
-                if p["artwork_id"]:
-                    artwork = {
-                        "id": p["artwork_id"],
-                        "image_url": p["image_url"],
-                        "style": p["style"],
-                        "provider": p["provider"],
-                        "quality_score": float(p["quality_score"]) if p["quality_score"] else 0,
-                        "generation_cost": float(p["generation_cost"]) if p["generation_cost"] else 0,
-                        "model_used": metadata.get("model_key") if isinstance(metadata, dict) else None
-                    }
-                
-                # Build product object
-                product_obj = {
-                    "id": p["id"],
-                    "sku": p["sku"],
-                    "title": p["title"],
-                    "description": p["description"],
-                    "base_price": float(p["base_price"]),
-                    "status": p["status"],
-                    "category": p["category"],
-                    "tags": p["tags"],
-                    "artwork": artwork,
-                    "created_at": p["created_at"].isoformat() if p["created_at"] else None
-                }
-                
-                products_list.append(product_obj)
-                
-            except Exception as e:
-                logger.error(f"Error serializing product {p['id']}: {e}")
-                # Skip this product but continue with others
-                continue
+        # Format results
+        trends_list = []
+        for t in trends:
+            trends_list.append({
+                "id": t["id"],
+                "keyword": t["keyword"],
+                "search_volume": t["search_volume"],
+                "trend_score": float(t["trend_score"]) if t["trend_score"] else 0.0,
+                "geography": t["geography"],
+                "category": t["category"],
+                "created_at": t["created_at"].isoformat() if t["created_at"] else None,
+                "data": t["data"]
+            })
         
-        logger.info(f"Successfully fetched {len(products_list)} products")
+        logger.info(f"Successfully fetched {len(trends_list)} trends")
         
         return {
-            "products": products_list,
-            "total": len(products_list),
+            "trends": trends_list,
+            "total": len(trends_list),
             "limit": limit,
             "offset": offset
         }
         
     except Exception as e:
-        logger.error(f"Error fetching products: {e}")
+        logger.error(f"Error fetching trends: {e}")
         logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{product_id}")
-async def get_product(
-    product_id: int,
+@router.post("/fetch")
+async def fetch_trends_from_google(
+    region: str = Query(default="GB"),
+    min_score: float = Query(default=6.0, ge=0.0, le=10.0),
+    background_tasks: BackgroundTasks = None,
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
-    """Get a single product by ID"""
+    """
+    Fetch new trends from Google Trends and store them
+    
+    This endpoint:
+    1. Fetches trending topics from Google Trends
+    2. Filters for POD-suitable keywords
+    3. Stores them in the database
+    4. Returns summary of what was found
+    """
     try:
-        product = await db_pool.fetchrow(
-            """
-            SELECT 
-                p.id, p.sku, p.title, p.description, 
-                p.base_price, p.status, p.category, p.tags,
-                p.created_at,
-                a.id as artwork_id,
-                a.image_url, a.style, a.provider,
-                a.quality_score, a.generation_cost,
-                a.metadata
-            FROM products p
-            LEFT JOIN artwork a ON p.artwork_id = a.id
-            WHERE p.id = $1
-            """,
-            product_id
+        logger.info(f"🔍 Fetching trends from Google Trends for region: {region}")
+        
+        trend_service = TrendService(db_pool)
+        
+        # Fetch and store trends
+        stored_trends = await trend_service.fetch_and_store_trends(
+            region=region,
+            min_score=min_score
         )
         
-        if not product:
-            raise HTTPException(status_code=404, detail="Product not found")
-        
-        # Parse metadata
-        metadata = product["metadata"]
-        if isinstance(metadata, str):
-            try:
-                metadata = json.loads(metadata)
-            except json.JSONDecodeError:
-                metadata = {}
-        elif metadata is None:
-            metadata = {}
-        
-        # Build artwork object
-        artwork = None
-        if product["artwork_id"]:
-            artwork = {
-                "id": product["artwork_id"],
-                "image_url": product["image_url"],
-                "style": product["style"],
-                "provider": product["provider"],
-                "quality_score": float(product["quality_score"]) if product["quality_score"] else 0,
-                "generation_cost": float(product["generation_cost"]) if product["generation_cost"] else 0,
-                "model_used": metadata.get("model_key") if isinstance(metadata, dict) else None
+        if not stored_trends:
+            return {
+                "success": False,
+                "message": "No suitable trends found",
+                "trends_stored": 0,
+                "region": region
             }
         
+        # Get top 5 for preview
+        top_trends = stored_trends[:5]
+        
+        logger.info(f"✅ Successfully stored {len(stored_trends)} trends")
+        
         return {
-            "id": product["id"],
-            "sku": product["sku"],
-            "title": product["title"],
-            "description": product["description"],
-            "base_price": float(product["base_price"]),
-            "status": product["status"],
-            "category": product["category"],
-            "tags": product["tags"],
-            "artwork": artwork,
-            "created_at": product["created_at"].isoformat() if product["created_at"] else None
+            "success": True,
+            "message": f"Successfully fetched {len(stored_trends)} trends from Google",
+            "trends_stored": len(stored_trends),
+            "region": region,
+            "top_trends": [
+                {
+                    "keyword": t["keyword"],
+                    "search_volume": t["search_volume"],
+                    "trend_score": t["trend_score"],
+                    "category": t["category"]
+                }
+                for t in top_trends
+            ]
         }
         
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Error fetching product: {e}")
+        logger.error(f"❌ Error fetching trends: {e}")
+        logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/")
-async def create_product(
-    product_data: dict,
+@router.get("/without-products")
+async def get_trends_without_products(
+    limit: int = Query(default=10, ge=1, le=50),
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
-    """Create a new product"""
+    """Get trends that haven't been generated into products yet"""
     try:
-        product_id = await db_pool.fetchval(
+        trend_service = TrendService(db_pool)
+        trends = await trend_service.get_trends_without_products(limit=limit)
+        
+        return {
+            "trends": trends,
+            "total": len(trends)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching trends without products: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{trend_id}")
+async def get_trend(
+    trend_id: int,
+    db_pool: DatabasePool = Depends(get_db_pool)
+):
+    """Get a single trend by ID"""
+    try:
+        trend = await db_pool.fetchrow(
             """
-            INSERT INTO products (
-                sku, title, description, base_price,
-                artwork_id, category, tags, status
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING id
+            SELECT id, keyword, search_volume, trend_score,
+                   geography, category, created_at, data
+            FROM trends
+            WHERE id = $1
             """,
-            product_data["sku"],
-            product_data["title"],
-            product_data.get("description", ""),
-            product_data["base_price"],
-            product_data.get("artwork_id"),
-            product_data.get("category", "wall-art"),
-            product_data.get("tags", []),
-            product_data.get("status", "active")
+            trend_id
         )
         
-        logger.info(f"Product created: {product_id}")
+        if not trend:
+            raise HTTPException(status_code=404, detail="Trend not found")
         
         return {
-            "id": product_id,
-            "message": "Product created successfully"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error creating product: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.put("/{product_id}")
-async def update_product(
-    product_id: int,
-    product_data: dict,
-    db_pool: DatabasePool = Depends(get_db_pool)
-):
-    """Update a product"""
-    try:
-        # Check if product exists
-        exists = await db_pool.fetchval(
-            "SELECT id FROM products WHERE id = $1",
-            product_id
-        )
-        
-        if not exists:
-            raise HTTPException(status_code=404, detail="Product not found")
-        
-        # Update product
-        await db_pool.execute(
-            """
-            UPDATE products
-            SET title = COALESCE($1, title),
-                description = COALESCE($2, description),
-                base_price = COALESCE($3, base_price),
-                status = COALESCE($4::product_status, status),
-                category = COALESCE($5, category),
-                tags = COALESCE($6, tags)
-            WHERE id = $7
-            """,
-            product_data.get("title"),
-            product_data.get("description"),
-            product_data.get("base_price"),
-            product_data.get("status"),
-            product_data.get("category"),
-            product_data.get("tags"),
-            product_id
-        )
-        
-        logger.info(f"Product updated: {product_id}")
-        
-        return {
-            "id": product_id,
-            "message": "Product updated successfully"
+            "id": trend["id"],
+            "keyword": trend["keyword"],
+            "search_volume": trend["search_volume"],
+            "trend_score": float(trend["trend_score"]) if trend["trend_score"] else 0.0,
+            "geography": trend["geography"],
+            "category": trend["category"],
+            "created_at": trend["created_at"].isoformat() if trend["created_at"] else None,
+            "data": trend["data"]
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating product: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/{product_id}")
-async def delete_product(
-    product_id: int,
-    db_pool: DatabasePool = Depends(get_db_pool)
-):
-    """Delete a product"""
-    try:
-        # Check if product exists
-        exists = await db_pool.fetchval(
-            "SELECT id FROM products WHERE id = $1",
-            product_id
-        )
-        
-        if not exists:
-            raise HTTPException(status_code=404, detail="Product not found")
-        
-        # Delete product
-        await db_pool.execute(
-            "DELETE FROM products WHERE id = $1",
-            product_id
-        )
-        
-        logger.info(f"Product deleted: {product_id}")
-        
-        return {
-            "id": product_id,
-            "message": "Product deleted successfully"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting product: {e}")
+        logger.error(f"Error fetching trend: {e}")
         raise HTTPException(status_code=500, detail=str(e))
