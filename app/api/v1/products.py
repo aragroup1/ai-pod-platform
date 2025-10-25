@@ -19,7 +19,7 @@ async def get_products(
     """
     Get products with artwork
     
-    ✅ FIXED: Properly handles JSON metadata field
+    ✅ FIXED: Removed updated_at column reference
     """
     try:
         logger.info(f"Fetching products with limit={limit}, offset={offset}, status={status}")
@@ -30,7 +30,7 @@ async def get_products(
                 SELECT 
                     p.id, p.sku, p.title, p.description, 
                     p.base_price, p.status, p.category, p.tags,
-                    p.created_at, p.updated_at,
+                    p.created_at,
                     a.id as artwork_id,
                     a.image_url, a.style, a.provider,
                     a.quality_score, a.generation_cost,
@@ -47,7 +47,7 @@ async def get_products(
                 SELECT 
                     p.id, p.sku, p.title, p.description, 
                     p.base_price, p.status, p.category, p.tags,
-                    p.created_at, p.updated_at,
+                    p.created_at,
                     a.id as artwork_id,
                     a.image_url, a.style, a.provider,
                     a.quality_score, a.generation_cost,
@@ -97,8 +97,7 @@ async def get_products(
                     "category": p["category"],
                     "tags": p["tags"],
                     "artwork": artwork,
-                    "created_at": p["created_at"].isoformat() if p["created_at"] else None,
-                    "updated_at": p["updated_at"].isoformat() if p["updated_at"] else None
+                    "created_at": p["created_at"].isoformat() if p["created_at"] else None
                 }
                 
                 products_list.append(product_obj)
@@ -135,7 +134,7 @@ async def get_product(
             SELECT 
                 p.id, p.sku, p.title, p.description, 
                 p.base_price, p.status, p.category, p.tags,
-                p.created_at, p.updated_at,
+                p.created_at,
                 a.id as artwork_id,
                 a.image_url, a.style, a.provider,
                 a.quality_score, a.generation_cost,
@@ -183,8 +182,7 @@ async def get_product(
             "category": product["category"],
             "tags": product["tags"],
             "artwork": artwork,
-            "created_at": product["created_at"].isoformat() if product["created_at"] else None,
-            "updated_at": product["updated_at"].isoformat() if product["updated_at"] else None
+            "created_at": product["created_at"].isoformat() if product["created_at"] else None
         }
         
     except HTTPException:
@@ -257,8 +255,7 @@ async def update_product(
                 base_price = COALESCE($3, base_price),
                 status = COALESCE($4::product_status, status),
                 category = COALESCE($5, category),
-                tags = COALESCE($6, tags),
-                updated_at = NOW()
+                tags = COALESCE($6, tags)
             WHERE id = $7
             """,
             product_data.get("title"),
