@@ -49,10 +49,9 @@ async def lifespan(app: FastAPI):
         app.state.redis_client.is_connected = False
 
     # Load and register API routers
-    try:
-        from app.api.v1 import (
+    from app.api.v1 import (
             trends, products, artwork, platforms, 
-            orders, analytics, test, generation
+            orders, analytics, test, generation, keyword_research
         )
         from app.api.v1.dashboard import providers as dashboard_providers
         
@@ -64,9 +63,10 @@ async def lifespan(app: FastAPI):
         app.include_router(analytics.router, prefix=f"{settings.API_V1_PREFIX}/analytics", tags=["Analytics"])
         app.include_router(test.router, prefix=f"{settings.API_V1_PREFIX}/test", tags=["Test"])
         app.include_router(generation.router, prefix=f"{settings.API_V1_PREFIX}/generation", tags=["Generation"])
+        app.include_router(keyword_research.router, prefix=f"{settings.API_V1_PREFIX}/keyword-research", tags=["Keyword Research"])
         app.include_router(dashboard_providers.router, prefix=f"{settings.API_V1_PREFIX}/dashboard", tags=["Dashboard"])
-        
-        logger.info("✅ All API routers loaded successfully.")
+
+    logger.info("✅ All API routers loaded successfully.")
     except Exception as e:
         logger.error(f"❌ Failed to load routers: {e}")
 
