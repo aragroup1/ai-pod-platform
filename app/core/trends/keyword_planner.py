@@ -13,7 +13,7 @@ try:
     GOOGLE_ADS_AVAILABLE = True
 except ImportError:
     GOOGLE_ADS_AVAILABLE = False
-    logger.warning("google-ads library not installed. Keyword Planner features disabled.")
+    logger.warning("google-ads library not installed. Run: pip install google-ads")
 
 from app.core.trends.google_ads_config import get_google_ads_config, validate_customer_id
 
@@ -22,47 +22,54 @@ class KeywordPlannerAnalyzer:
     """
     Google Keyword Planner integration for search volume data
     
-    Requires:
-    1. Google Ads account (can have $0 spend)
-    2. Google Ads API credentials
-    3. Developer token
+    Setup Instructions:
+    1. Go to https://console.cloud.google.com
+    2. Enable Google Ads API
+    3. Create OAuth 2.0 credentials (Web application)
+    4. Use OAuth Playground to get refresh token
+    5. Add environment variables to Railway
+    
+    Required Environment Variables:
+    - GOOGLE_ADS_DEVELOPER_TOKEN (you have: tbWEP6dGtUdVRGOBFl2Wzg)
+    - GOOGLE_ADS_CLIENT_ID (from OAuth credentials)
+    - GOOGLE_ADS_CLIENT_SECRET (from OAuth credentials)
+    - GOOGLE_ADS_REFRESH_TOKEN (from OAuth Playground)
+    - GOOGLE_ADS_CUSTOMER_ID (your ID: 9735349933)
     """
     
     def __init__(self, customer_id: Optional[str] = None):
-        """
-        Initialize the analyzer
+        self.client = None
+        self.customer_id = None
+        self.setup_error = None
         
-        Args:
-            customer_id: Google Ads customer ID (10 digits, no hyphens)
-        """
         if not GOOGLE_ADS_AVAILABLE:
-            logger.error("Google Ads library not available. Install with: pip install google-ads")
-            self.client = None
+            self.setup_error = "google-ads library not installed"
+            logger.warning(self.setup_error)
             return
         
         config = get_google_ads_config()
         if not config:
-            logger.error("Google Ads API not configured")
-            self.client = None
+            self.setup_error = "Google Ads API credentials not configured. See setup instructions."
+            logger.warning(self.setup_error)
             return
         
-        # Add customer ID if provided
+        # Validate and set customer ID
         if customer_id:
-            customer_id = validate_customer_id(customer_id)
-            if customer_id:
-                config['login_customer_id'] = customer_id
+            self.customer_id = validate_customer_id(customer_id)
+        elif config.get('login_customer_id'):
+            self.customer_id = validate_customer_id(config['login_customer_id'])
+        
+        if not self.customer_id:
+            self.setup_error = "Customer ID not provided or invalid"
+            logger.warning(self.setup_error)
+            return
         
         try:
             self.client = GoogleAdsClient.load_from_dict(config)
-            self.customer_id = customer_id or config.get('login_customer_id')
-            
-            if self.customer_id:
-                self.customer_id = validate_customer_id(self.customer_id)
-            
-            logger.info(f"✅ Google Keyword Planner initialized (Customer ID: {self.customer_id})")
+            logger.info(f"✅ Google Keyword Planner initialized (Customer: {self.customer_id})")
         except Exception as e:
-            logger.error(f"Failed to initialize Google Ads client: {e}")
-            self.client = None
+            self.setup_error = f"Failed to initialize: {str(e)}"
+            logger.error(self.setup_error)
     
     def _get_keyword_ideas_sync(
         self,
@@ -70,52 +77,45 @@ class KeywordPlannerAnalyzer:
         country_code: str = "GB",
         language_code: str = "en"
     ) -> List[Dict]:
-        """
-        Synchronous method to get keyword ideas
-        Runs in thread pool executor for async compatibility
-        """
+        """Synchronous method to get keyword ideas"""
         if not self.client or not self.customer_id:
-            logger.error("Google Ads client not initialized")
+            logger.error(f"Cannot get keyword ideas: {self.setup_error}")
             return []
         
         try:
             keyword_plan_idea_service = self.client.get_service("KeywordPlanIdeaService")
             
-            # Map country codes to geo target constants
-            geo_target_constants = {
-                "GB": "geoTargetConstants/2826",  # United Kingdom
-                "US": "geoTargetConstants/2840",  # United States
-                "CA": "geoTargetConstants/2124",  # Canada
-                "AU": "geoTargetConstants/2036",  # Australia
+            # Geo target constants
+            geo_targets = {
+                "GB": "geoTargetConstants/2826",
+                "US": "geoTargetConstants/2840",
+                "CA": "geoTargetConstants/2124",
+                "AU": "geoTargetConstants/2036",
             }
-            
-            geo_target = geo_target_constants.get(country_code, "geoTargetConstants/2826")
             
             # Build request
             request = self.client.get_type("GenerateKeywordIdeasRequest")
             request.customer_id = self.customer_id
             
-            # Set language (English)
+            # Language: English
             request.language = self.client.get_service("GoogleAdsService").language_constant_path("1000")
             
-            # Set geo target
+            # Geo target
+            geo_target = geo_targets.get(country_code, geo_targets["GB"])
             request.geo_target_constants.append(geo_target)
             
-            # Set keywords
+            # Keywords
             request.keyword_seed.keywords.extend(keywords)
-            
-            # Include adult keywords (for comprehensive data)
             request.include_adult_keywords = False
             
-            # Get keyword ideas
+            # Get ideas
             response = keyword_plan_idea_service.generate_keyword_ideas(request=request)
             
             results = []
             for idea in response.results:
-                # Extract metrics
                 metrics = idea.keyword_idea_metrics
                 
-                # Competition level mapping
+                # Competition mapping
                 competition_map = {
                     0: "UNSPECIFIED",
                     1: "UNKNOWN", 
@@ -129,26 +129,29 @@ class KeywordPlannerAnalyzer:
                     "UNKNOWN"
                 )
                 
+                # Convert micros to currency (1 million micros = 1 unit)
+                low_bid = (metrics.low_top_of_page_bid_micros or 0) / 1_000_000
+                high_bid = (metrics.high_top_of_page_bid_micros or 0) / 1_000_000
+                
                 results.append({
                     'keyword': idea.text,
                     'avg_monthly_searches': metrics.avg_monthly_searches or 0,
                     'competition': competition,
-                    'competition_index': metrics.competition_index or 0,  # 0-100 scale
-                    'low_top_of_page_bid_micros': metrics.low_top_of_page_bid_micros or 0,
-                    'high_top_of_page_bid_micros': metrics.high_top_of_page_bid_micros or 0,
+                    'competition_index': metrics.competition_index or 0,
+                    'low_top_of_page_bid': round(low_bid, 2),
+                    'high_top_of_page_bid': round(high_bid, 2),
                 })
             
-            logger.info(f"✅ Retrieved {len(results)} keyword ideas from Google Keyword Planner")
+            logger.info(f"✅ Retrieved {len(results)} keyword ideas")
             return results
             
         except GoogleAdsException as ex:
-            logger.error(f"Google Ads API error: {ex}")
+            logger.error("Google Ads API error:")
             for error in ex.failure.errors:
-                logger.error(f"  Error: {error.message}")
+                logger.error(f"  - {error.message}")
             return []
         except Exception as e:
             logger.error(f"Error getting keyword ideas: {e}")
-            logger.exception("Full traceback:")
             return []
     
     async def get_keyword_volume(
@@ -157,30 +160,11 @@ class KeywordPlannerAnalyzer:
         country_code: str = "GB",
         language_code: str = "en"
     ) -> List[Dict]:
-        """
-        Get search volume data for keywords (async wrapper)
-        
-        Args:
-            keywords: List of keywords to analyze
-            country_code: Country code (GB, US, CA, AU)
-            language_code: Language code (en)
-            
-        Returns:
-            List of dicts with keyword data:
-            {
-                'keyword': str,
-                'avg_monthly_searches': int,
-                'competition': str,  # LOW, MEDIUM, HIGH
-                'competition_index': int,  # 0-100
-                'low_top_of_page_bid_micros': int,
-                'high_top_of_page_bid_micros': int
-            }
-        """
+        """Get search volume data for keywords (async)"""
         if not self.client:
-            logger.warning("Google Keyword Planner not available")
+            logger.warning(f"Keyword Planner unavailable: {self.setup_error}")
             return []
         
-        # Run sync method in thread pool
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as executor:
             results = await loop.run_in_executor(
@@ -198,18 +182,7 @@ class KeywordPlannerAnalyzer:
         keywords: List[str],
         country_code: str = "GB"
     ) -> Dict:
-        """
-        Analyze multiple keywords and provide summary
-        
-        Returns:
-            {
-                'keywords': [...],  # Full data
-                'total_volume': int,
-                'avg_competition': str,
-                'high_volume_keywords': [...],  # >10k monthly searches
-                'low_competition_keywords': [...]  # LOW competition
-            }
-        """
+        """Analyze multiple keywords with summary"""
         results = await self.get_keyword_volume(keywords, country_code)
         
         if not results:
@@ -218,24 +191,16 @@ class KeywordPlannerAnalyzer:
                 'total_volume': 0,
                 'avg_competition': 'UNKNOWN',
                 'high_volume_keywords': [],
-                'low_competition_keywords': []
+                'low_competition_keywords': [],
+                'error': self.setup_error
             }
         
         total_volume = sum(k['avg_monthly_searches'] for k in results)
         
-        # High volume keywords (>10k monthly searches)
-        high_volume = [
-            k for k in results 
-            if k['avg_monthly_searches'] >= 10000
-        ]
+        high_volume = [k for k in results if k['avg_monthly_searches'] >= 10000]
+        low_competition = [k for k in results if k['competition'] == 'LOW']
         
-        # Low competition keywords
-        low_competition = [
-            k for k in results
-            if k['competition'] == 'LOW'
-        ]
-        
-        # Average competition
+        # Most common competition level
         competition_counts = {}
         for k in results:
             comp = k['competition']
@@ -254,16 +219,36 @@ class KeywordPlannerAnalyzer:
         }
     
     def is_available(self) -> bool:
-        """Check if the service is available and configured"""
+        """Check if service is ready"""
         return self.client is not None and self.customer_id is not None
+    
+    def get_setup_status(self) -> Dict:
+        """Get detailed setup status for debugging"""
+        import os
+        
+        return {
+            'library_installed': GOOGLE_ADS_AVAILABLE,
+            'developer_token_set': bool(os.getenv('GOOGLE_ADS_DEVELOPER_TOKEN')),
+            'client_id_set': bool(os.getenv('GOOGLE_ADS_CLIENT_ID')),
+            'client_secret_set': bool(os.getenv('GOOGLE_ADS_CLIENT_SECRET')),
+            'refresh_token_set': bool(os.getenv('GOOGLE_ADS_REFRESH_TOKEN')),
+            'customer_id_set': bool(self.customer_id),
+            'client_initialized': bool(self.client),
+            'ready': self.is_available(),
+            'error': self.setup_error,
+            'setup_instructions': 'See scripts/setup_google_ads.md for setup guide'
+        }
 
 
-# Singleton instance
+# Singleton
 _analyzer = None
 
 def get_keyword_planner(customer_id: Optional[str] = None) -> KeywordPlannerAnalyzer:
     """Get or create keyword planner instance"""
     global _analyzer
     if _analyzer is None:
-        _analyzer = KeywordPlannerAnalyzer(customer_id=customer_id)
+        # Use customer ID from environment or provided
+        import os
+        cid = customer_id or os.getenv('GOOGLE_ADS_CUSTOMER_ID')
+        _analyzer = KeywordPlannerAnalyzer(customer_id=cid)
     return _analyzer
