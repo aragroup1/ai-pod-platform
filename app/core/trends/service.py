@@ -1,11 +1,12 @@
 """
-Enhanced Trend Service with Product Research
+Enhanced Trend Service with Product Research - FIXED JSON HANDLING
 Fetches trends from Google, analyzes search volume, and identifies profitable niches
 """
 from typing import List, Dict, Optional
 from datetime import datetime
 from loguru import logger
 import asyncio
+import json
 
 from app.database import DatabasePool
 from app.core.trends.google_trends import get_trends_analyzer
@@ -48,7 +49,7 @@ class TrendService:
             trending_topics = await self._get_fallback_trends()
         
         # Step 2: Enrich with Keyword Planner data (if available)
-        if self.keyword_planner.is_available():
+        if self.keyword_planner and self.keyword_planner.is_available():
             logger.info("📊 Enriching with Google Keyword Planner data...")
             keywords = [t['keyword'] for t in trending_topics]
             volume_data = await self.keyword_planner.analyze_trend_keywords(
@@ -71,7 +72,7 @@ class TrendService:
         # Step 3: Score and filter trends
         scored_trends = self._score_trends_for_pod(trending_topics)
         
-        # Step 4: Store in database
+        # Step 4: Store in database - FIX JSON SERIALIZATION
         stored_trends = []
         for topic in scored_trends[:limit]:
             try:
@@ -89,13 +90,24 @@ class TrendService:
                     logger.debug(f"Trend already exists: {topic['keyword']}")
                     continue
                 
+                # FIXED: Convert dict to JSON string for database
+                data_json = json.dumps({
+                    'is_rising': topic.get('is_rising', False),
+                    'competition': topic.get('competition', 'medium'),
+                    'cpc': topic.get('cpc', 0),
+                    'fetched_at': datetime.utcnow().isoformat(),
+                    'source': 'google_trends',
+                    'pod_suitable': True,
+                    'designs_allocated': self._calculate_designs_for_volume(topic.get('search_volume', 10000))
+                })
+                
                 # Insert new trend
                 trend_id = await self.db_pool.fetchval(
                     """
                     INSERT INTO trends (
                         keyword, search_volume, trend_score, 
                         geography, category, data
-                    ) VALUES ($1, $2, $3, $4, $5, $6)
+                    ) VALUES ($1, $2, $3, $4, $5, $6::jsonb)
                     RETURNING id
                     """,
                     topic['keyword'],
@@ -103,14 +115,7 @@ class TrendService:
                     topic['pod_score'],  # Our calculated score
                     topic.get('geography', region),
                     topic.get('category', 'general'),
-                    {
-                        'is_rising': topic.get('is_rising', False),
-                        'competition': topic.get('competition', 'medium'),
-                        'cpc': topic.get('cpc', 0),
-                        'fetched_at': datetime.utcnow().isoformat(),
-                        'source': 'google_trends',
-                        'pod_suitable': True
-                    }
+                    data_json  # Pass as JSON string
                 )
                 
                 stored_trends.append({
@@ -131,6 +136,23 @@ class TrendService:
         
         # Return summary
         return stored_trends
+    
+    def _calculate_designs_for_volume(self, volume: int) -> int:
+        """Calculate how many designs to allocate based on search volume"""
+        if volume >= 50000:
+            return 100
+        elif volume >= 30000:
+            return 75
+        elif volume >= 20000:
+            return 50
+        elif volume >= 10000:
+            return 30
+        elif volume >= 5000:
+            return 20
+        elif volume >= 2000:
+            return 10
+        else:
+            return 5
     
     def _score_trends_for_pod(self, trends: List[Dict]) -> List[Dict]:
         """
@@ -269,6 +291,200 @@ class TrendService:
         logger.info(f"📋 Using {len(trends)} proven fallback trends")
         return trends
     
+    async def fetch_initial_10k_keywords(self) -> Dict:
+        """
+        Fetch comprehensive keyword set for initial 10K design launch
+        This will gather keywords from multiple categories to ensure diversity
+        """
+        logger.info("🚀 Fetching keywords for 10K initial design launch...")
+        
+        all_keywords = []
+        
+        # Categories with expected design counts
+        categories_keywords = {
+            'nature': [
+                ('mountain landscape', 25000, 50),
+                ('sunset photography', 22000, 40),
+                ('ocean waves art', 20000, 40),
+                ('forest prints', 18000, 35),
+                ('desert landscape', 15000, 30),
+                ('lake reflection', 12000, 25),
+                ('northern lights', 16000, 30),
+                ('tropical beach', 24000, 45),
+                ('autumn leaves', 14000, 25),
+                ('winter scene', 13000, 25),
+            ],
+            'typography': [
+                ('motivational quotes', 35000, 70),
+                ('inspirational sayings', 30000, 60),
+                ('funny quotes', 28000, 55),
+                ('office humor', 22000, 40),
+                ('bedroom quotes', 20000, 40),
+                ('kitchen sayings', 18000, 35),
+                ('bathroom quotes', 15000, 30),
+                ('gym motivation', 25000, 50),
+                ('love quotes', 32000, 65),
+                ('family quotes', 24000, 45),
+            ],
+            'abstract': [
+                ('geometric patterns', 20000, 40),
+                ('abstract shapes', 18000, 35),
+                ('modern art', 22000, 40),
+                ('minimalist design', 25000, 50),
+                ('boho patterns', 16000, 30),
+                ('scandinavian art', 14000, 25),
+                ('color blocks', 12000, 20),
+                ('line drawings', 15000, 30),
+                ('circle art', 10000, 20),
+                ('triangle patterns', 8000, 15),
+            ],
+            'botanical': [
+                ('botanical prints', 24000, 45),
+                ('flower art', 22000, 40),
+                ('leaf patterns', 18000, 35),
+                ('tropical plants', 20000, 40),
+                ('cactus art', 15000, 30),
+                ('succulent prints', 14000, 25),
+                ('herb illustrations', 12000, 20),
+                ('garden flowers', 16000, 30),
+                ('wildflowers', 13000, 25),
+                ('monstera leaf', 11000, 20),
+            ],
+            'animals': [
+                ('cat art', 28000, 55),
+                ('dog prints', 26000, 50),
+                ('bird illustrations', 18000, 35),
+                ('elephant art', 16000, 30),
+                ('lion prints', 14000, 25),
+                ('butterfly art', 15000, 30),
+                ('horse photography', 13000, 25),
+                ('owl illustrations', 12000, 20),
+                ('bear art', 11000, 20),
+                ('fox prints', 10000, 20),
+            ],
+            'city': [
+                ('new york skyline', 30000, 60),
+                ('london prints', 25000, 50),
+                ('paris art', 28000, 55),
+                ('tokyo cityscape', 18000, 35),
+                ('city maps', 20000, 40),
+                ('street photography', 16000, 30),
+                ('urban art', 14000, 25),
+                ('architecture prints', 15000, 30),
+                ('bridges art', 12000, 20),
+                ('skyscrapers', 10000, 20),
+            ],
+            'vintage': [
+                ('retro posters', 22000, 40),
+                ('vintage travel', 20000, 40),
+                ('mid century art', 18000, 35),
+                ('vintage flowers', 16000, 30),
+                ('classic cars', 14000, 25),
+                ('retro patterns', 15000, 30),
+                ('vintage maps', 13000, 25),
+                ('old advertisements', 11000, 20),
+                ('vintage photography', 12000, 20),
+                ('antique prints', 10000, 20),
+            ],
+            'seasonal': [
+                ('christmas art', 35000, 70),
+                ('halloween prints', 25000, 50),
+                ('easter decorations', 18000, 35),
+                ('summer vibes', 20000, 40),
+                ('spring flowers', 16000, 30),
+                ('autumn decor', 14000, 25),
+                ('winter wonderland', 15000, 30),
+                ('valentines art', 22000, 40),
+                ('thanksgiving prints', 12000, 20),
+                ('new year art', 13000, 25),
+            ],
+            'space': [
+                ('galaxy art', 18000, 35),
+                ('moon phases', 16000, 30),
+                ('constellation map', 14000, 25),
+                ('solar system', 12000, 20),
+                ('astronaut art', 10000, 20),
+                ('nebula prints', 11000, 20),
+                ('planets poster', 13000, 25),
+                ('stars pattern', 9000, 15),
+                ('rocket ship', 8000, 15),
+                ('space exploration', 7000, 10),
+            ],
+            'sports': [
+                ('gym motivation', 20000, 40),
+                ('yoga poses', 18000, 35),
+                ('running quotes', 15000, 30),
+                ('basketball art', 14000, 25),
+                ('football prints', 16000, 30),
+                ('golf art', 12000, 20),
+                ('tennis posters', 10000, 20),
+                ('cycling art', 9000, 15),
+                ('swimming quotes', 8000, 15),
+                ('fitness motivation', 22000, 40),
+            ]
+        }
+        
+        total_designs = 0
+        for category, keywords in categories_keywords.items():
+            for keyword, volume, designs in keywords:
+                all_keywords.append({
+                    'keyword': keyword,
+                    'search_volume': volume,
+                    'category': category,
+                    'designs_allocated': designs,
+                    'trend_score': 8.0  # Good baseline score
+                })
+                total_designs += designs
+        
+        # Store all keywords
+        stored_count = 0
+        for kw in all_keywords:
+            try:
+                # Check if exists
+                existing = await self.db_pool.fetchval(
+                    """
+                    SELECT id FROM trends 
+                    WHERE LOWER(keyword) = LOWER($1)
+                    """,
+                    kw['keyword']
+                )
+                
+                if not existing:
+                    data_json = json.dumps({
+                        'designs_allocated': kw['designs_allocated'],
+                        'initial_10k_batch': True,
+                        'created_at': datetime.utcnow().isoformat()
+                    })
+                    
+                    await self.db_pool.execute(
+                        """
+                        INSERT INTO trends (
+                            keyword, search_volume, trend_score,
+                            geography, category, data
+                        ) VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                        """,
+                        kw['keyword'],
+                        kw['search_volume'],
+                        kw['trend_score'],
+                        'GB',
+                        kw['category'],
+                        data_json
+                    )
+                    stored_count += 1
+                    
+            except Exception as e:
+                logger.error(f"Error storing keyword {kw['keyword']}: {e}")
+        
+        return {
+            'total_keywords': len(all_keywords),
+            'keywords_stored': stored_count,
+            'total_designs_planned': total_designs,
+            'categories': len(categories_keywords),
+            'estimated_cost_test': f"£{total_designs * 0.003:.2f}",
+            'estimated_cost_production': f"£{total_designs * 0.04:.2f}",
+            'message': f"Ready to generate {total_designs} designs across {len(categories_keywords)} categories"
+        }
+    
     async def get_trends_without_products(self, limit: int = 10) -> List[Dict]:
         """
         Get trends that don't have products yet
@@ -305,33 +521,6 @@ class TrendService:
         except Exception as e:
             logger.error(f"Error fetching trends without products: {e}")
             return []
-    
-    async def analyze_etsy_demand(self, keyword: str) -> Dict:
-        """
-        Analyze demand on Etsy (when API is available)
-        For now, returns estimated data
-        """
-        # TODO: Implement when Etsy API is approved
-        # This is a placeholder that estimates based on keyword
-        
-        keyword_lower = keyword.lower()
-        
-        # Estimate based on keyword characteristics
-        base_listings = 5000
-        
-        # Popular categories get more listings
-        if any(word in keyword_lower for word in ['vintage', 'boho', 'minimalist', 'wall art']):
-            base_listings *= 2
-        
-        if any(word in keyword_lower for word in ['quote', 'motivational', 'inspirational']):
-            base_listings *= 1.5
-        
-        return {
-            'estimated_listings': int(base_listings),
-            'competition_level': 'medium' if base_listings < 10000 else 'high',
-            'recommended_price': 29.99 if 'premium' in keyword_lower else 19.99,
-            'best_sellers_avg_price': 24.99
-        }
     
     async def get_top_trends(
         self,
