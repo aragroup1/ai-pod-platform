@@ -166,6 +166,66 @@ async def fetch_trends_from_google(
         }
 
 
+@router.post("/fetch-10k-initial")
+async def fetch_initial_10k_keywords(
+    db_pool: DatabasePool = Depends(get_db_pool)
+):
+    """
+    Fetch comprehensive keyword set for initial 10K design launch
+    
+    This will populate the database with 100 carefully selected keywords across 
+    10 categories, with each keyword allocated designs based on search volume.
+    
+    Categories included:
+    - Nature & Landscapes (30% of designs)
+    - Typography & Quotes (25% of designs)
+    - Abstract & Geometric (15% of designs)
+    - Botanical & Floral (10% of designs)
+    - Animals & Wildlife (10% of designs)
+    - City & Urban (5% of designs)
+    - Vintage & Retro (5% of designs)
+    - Seasonal (bonus based on current season)
+    - Space & Science
+    - Sports & Fitness
+    
+    Total: ~10,000 designs from ~100 keywords
+    """
+    try:
+        logger.info("🚀 Starting 10K initial keyword fetch...")
+        
+        trend_service = TrendService(db_pool)
+        
+        # Fetch comprehensive keyword set
+        result = await trend_service.fetch_initial_10k_keywords()
+        
+        logger.info(f"✅ 10K initial fetch complete: {result['keywords_stored']} keywords stored")
+        
+        return {
+            "success": True,
+            "message": result['message'],
+            "total_keywords": result['total_keywords'],
+            "keywords_stored": result['keywords_stored'],
+            "total_designs_planned": result['total_designs_planned'],
+            "categories": result['categories'],
+            "estimated_cost": {
+                "testing_mode": result['estimated_cost_test'],
+                "production_mode": result['estimated_cost_production']
+            },
+            "next_steps": [
+                "1. Review the keywords in the database",
+                "2. Set generation to Testing Mode for initial run",
+                "3. Start batch generation with 10-20 trends at a time",
+                "4. Review and approve best designs",
+                "5. Switch to Production Mode for approved designs"
+            ]
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error in 10K initial fetch: {e}")
+        logger.exception("Full traceback:")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/without-products")
 async def get_trends_without_products(
     limit: int = Query(default=10, ge=1, le=50),
@@ -223,7 +283,7 @@ async def get_trend_analytics(
             WHERE category IS NOT NULL
             GROUP BY category
             ORDER BY count DESC
-            LIMIT 5
+            LIMIT 10
             """
         )
         
@@ -237,6 +297,11 @@ async def get_trend_analytics(
             LEFT JOIN artwork a ON t.id = a.trend_id
             """
         )
+        
+        # Calculate designs needed for 10K goal
+        designs_per_trend = 8  # 8 styles per trend
+        trends_needed_for_10k = 10000 // designs_per_trend
+        current_products = await db_pool.fetchval("SELECT COUNT(*) FROM products")
         
         return {
             "total_trends": stats["total_trends"],
@@ -260,11 +325,58 @@ async def get_trend_analytics(
                 "coverage_percentage": round(
                     (product_coverage["with_products"] / product_coverage["total"] * 100), 2
                 ) if product_coverage["total"] > 0 else 0
+            },
+            "goal_progress": {
+                "target_designs": 10000,
+                "current_designs": current_products,
+                "designs_needed": max(0, 10000 - current_products),
+                "trends_needed": max(0, (10000 - current_products) // designs_per_trend),
+                "progress_percentage": min(100, round((current_products / 10000) * 100, 2))
             }
         }
         
     except Exception as e:
         logger.error(f"Error getting trend analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/categories")
+async def get_available_categories(
+    db_pool: DatabasePool = Depends(get_db_pool)
+):
+    """Get all available trend categories with counts"""
+    try:
+        categories = await db_pool.fetch(
+            """
+            SELECT 
+                category,
+                COUNT(*) as trend_count,
+                AVG(search_volume) as avg_search_volume,
+                MAX(search_volume) as max_search_volume,
+                COUNT(*) FILTER (WHERE trend_score >= 8) as high_score_count
+            FROM trends
+            WHERE category IS NOT NULL
+            GROUP BY category
+            ORDER BY trend_count DESC
+            """
+        )
+        
+        return {
+            "categories": [
+                {
+                    "name": cat["category"],
+                    "trend_count": cat["trend_count"],
+                    "avg_search_volume": int(cat["avg_search_volume"]) if cat["avg_search_volume"] else 0,
+                    "max_search_volume": cat["max_search_volume"],
+                    "high_score_trends": cat["high_score_count"]
+                }
+                for cat in categories
+            ],
+            "total_categories": len(categories)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching categories: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
