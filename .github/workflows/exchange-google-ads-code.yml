@@ -1,0 +1,87 @@
+name: Exchange Authorization Code for Refresh Token
+
+on:
+  workflow_dispatch:
+    inputs:
+      client_id:
+        description: 'Google OAuth Client ID'
+        required: true
+      client_secret:
+        description: 'Google OAuth Client Secret'
+        required: true
+      authorization_code:
+        description: 'Authorization code from Google'
+        required: true
+
+jobs:
+  exchange-code:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install google-auth-oauthlib google-auth requests
+    
+    - name: Exchange code for tokens
+      run: |
+        python - << 'PYTHON_SCRIPT'
+        import requests
+        import json
+        
+        client_id = "${{ github.event.inputs.client_id }}"
+        client_secret = "${{ github.event.inputs.client_secret }}"
+        code = "${{ github.event.inputs.authorization_code }}"
+        
+        # Exchange authorization code for tokens
+        token_url = "https://oauth2.googleapis.com/token"
+        
+        data = {
+            'code': code,
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'redirect_uri': 'urn:ietf:wg:oauth:2.0:oob',
+            'grant_type': 'authorization_code'
+        }
+        
+        response = requests.post(token_url, data=data)
+        
+        if response.status_code == 200:
+            tokens = response.json()
+            
+            print("\n" + "="*80)
+            print("SUCCESS! Add these to your Railway environment variables:")
+            print("="*80)
+            print(f"GOOGLE_ADS_CLIENT_ID={client_id}")
+            print(f"GOOGLE_ADS_CLIENT_SECRET={client_secret}")
+            print(f"GOOGLE_ADS_REFRESH_TOKEN={tokens['refresh_token']}")
+            print(f"GOOGLE_ADS_DEVELOPER_TOKEN=tbWEP6dGtUdVRGOBFl2Wzg")
+            print(f"GOOGLE_ADS_CUSTOMER_ID=9735349933")
+            print("="*80 + "\n")
+            
+            # Create a summary file
+            with open('credentials.txt', 'w') as f:
+                f.write(f"GOOGLE_ADS_CLIENT_ID={client_id}\n")
+                f.write(f"GOOGLE_ADS_CLIENT_SECRET={client_secret}\n")
+                f.write(f"GOOGLE_ADS_REFRESH_TOKEN={tokens['refresh_token']}\n")
+                f.write(f"GOOGLE_ADS_DEVELOPER_TOKEN=tbWEP6dGtUdVRGOBFl2Wzg\n")
+                f.write(f"GOOGLE_ADS_CUSTOMER_ID=9735349933\n")
+        else:
+            print(f"Error: {response.status_code}")
+            print(response.json())
+            exit(1)
+        PYTHON_SCRIPT
+    
+    - name: Upload credentials
+      uses: actions/upload-artifact@v3
+      with:
+        name: google-ads-credentials
+        path: credentials.txt
+        retention-days: 1
