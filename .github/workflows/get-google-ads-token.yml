@@ -1,0 +1,86 @@
+name: Generate Google Ads Refresh Token
+
+on:
+  workflow_dispatch:
+    inputs:
+      client_id:
+        description: 'Google OAuth Client ID'
+        required: true
+      client_secret:
+        description: 'Google OAuth Client Secret'
+        required: true
+
+jobs:
+  generate-token:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install google-auth-oauthlib google-auth-httplib2
+    
+    - name: Create OAuth credentials file
+      run: |
+        cat > client_secret.json << EOF
+        {
+          "installed": {
+            "client_id": "${{ github.event.inputs.client_id }}",
+            "client_secret": "${{ github.event.inputs.client_secret }}",
+            "redirect_uris": ["http://localhost:8080/"],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token"
+          }
+        }
+        EOF
+    
+    - name: Generate authorization URL
+      run: |
+        python - << 'PYTHON_SCRIPT'
+        from google_auth_oauthlib.flow import InstalledAppFlow
+        import json
+        
+        SCOPES = ['https://www.googleapis.com/auth/adwords']
+        
+        flow = InstalledAppFlow.from_client_secrets_file(
+            'client_secret.json',
+            scopes=SCOPES,
+            redirect_uri='urn:ietf:wg:oauth:2.0:oob'
+        )
+        
+        auth_url, _ = flow.authorization_url(
+            access_type='offline',
+            include_granted_scopes='true',
+            prompt='consent'
+        )
+        
+        print("\n" + "="*80)
+        print("STEP 1: Visit this URL in your browser:")
+        print("="*80)
+        print(auth_url)
+        print("="*80)
+        print("\nSTEP 2: After authorizing, you'll get an authorization code.")
+        print("STEP 3: Run the workflow again with the authorization code as input.")
+        print("="*80 + "\n")
+        
+        # Save flow state for next step
+        with open('flow_state.json', 'w') as f:
+            json.dump({
+                'client_id': '${{ github.event.inputs.client_id }}',
+                'client_secret': '${{ github.event.inputs.client_secret }}'
+            }, f)
+        PYTHON_SCRIPT
+    
+    - name: Upload flow state
+      uses: actions/upload-artifact@v3
+      with:
+        name: flow-state
+        path: flow_state.json
+        retention-days: 1
