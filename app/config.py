@@ -24,10 +24,34 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = ""
     CELERY_RESULT_BACKEND: str = ""
     
-    # Optional API Keys
+    # AI Generation APIs
     REPLICATE_API_TOKEN: Optional[str] = None
     LEONARDO_API_KEY: Optional[str] = None
-    # ... add other optional keys here ...
+    OPENAI_API_KEY: Optional[str] = None
+    IDEOGRAM_API_KEY: Optional[str] = None
+    STABILITY_API_KEY: Optional[str] = None
+    
+    # Google Ads / Keyword Planner
+    GOOGLE_ADS_DEVELOPER_TOKEN: Optional[str] = None
+    GOOGLE_ADS_CLIENT_ID: Optional[str] = None
+    GOOGLE_ADS_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_ADS_REFRESH_TOKEN: Optional[str] = None
+    GOOGLE_ADS_CUSTOMER_ID: Optional[str] = None
+    GOOGLE_ADS_LOGIN_CUSTOMER_ID: Optional[str] = None
+    
+    # Trend Analysis
+    SERPAPI_KEY: Optional[str] = None
+    GOOGLE_TRENDS_API_KEY: Optional[str] = None
+    
+    # POD Providers
+    PRINTFUL_API_TOKEN: Optional[str] = None
+    PRINTIFY_API_TOKEN: Optional[str] = None
+    
+    # E-commerce Platforms
+    SHOPIFY_API_KEY: Optional[str] = None
+    SHOPIFY_API_SECRET: Optional[str] = None
+    SHOPIFY_ACCESS_TOKEN: Optional[str] = None
+    SHOPIFY_SHOP_DOMAIN: Optional[str] = None
     
     # Storage
     CLOUDFLARE_R2_ACCESS_KEY: Optional[str] = None
