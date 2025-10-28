@@ -1,103 +1,116 @@
-# app/utils/storage.py
 import boto3
-import aiohttp
+from botocore.exceptions import ClientError
 import os
-from loguru import logger
-from typing import Optional
-import hashlib
 from datetime import datetime
+import mimetypes
+from typing import Optional, Dict
+import io
+from PIL import Image
+from loguru import logger
 
 
-class StorageManager:
-    """Handle image storage to AWS S3"""
+class S3StorageManager:
+    """
+    AWS S3 Storage Manager for AI POD Platform
+    Handles secure image storage with private bucket and pre-signed URLs
+    """
     
     def __init__(self):
+        """Initialize S3 client with credentials from environment variables"""
+        self.aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
+        self.aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+        self.bucket_name = os.getenv('AWS_S3_BUCKET_NAME')
+        self.region = os.getenv('AWS_REGION', 'us-east-1')
+        
+        if not all([self.aws_access_key, self.aws_secret_key, self.bucket_name]):
+            raise ValueError("Missing required AWS credentials in environment variables")
+        
+        # Initialize S3 client
         self.s3_client = boto3.client(
             's3',
-            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-            region_name=os.getenv('AWS_S3_REGION', 'eu-west-2')
+            aws_access_key_id=self.aws_access_key,
+            aws_secret_access_key=self.aws_secret_key,
+            region_name=self.region
         )
-        self.bucket = os.getenv('AWS_S3_BUCKET', 'ai-pod-platform-images')
-        self.region = os.getenv('AWS_S3_REGION', 'eu-west-2')
-        self.public_url = os.getenv('AWS_S3_PUBLIC_URL') or f'https://{self.bucket}.s3.{self.region}.amazonaws.com'
         
-        logger.info(f"✅ Storage Manager initialized: {self.bucket}")
+        logger.info(f"S3 Storage Manager initialized for bucket: {self.bucket_name}")
     
-    async def download_and_upload(
-        self,
-        source_url: str,
-        destination_path: str
+    def upload_image(
+        self, 
+        image_data: bytes, 
+        filename: str, 
+        folder: str = 'products',
+        metadata: Optional[Dict] = None
     ) -> Optional[str]:
-        """
-        Download image from Replicate and upload to S3
-        
-        Args:
-            source_url: Replicate's temporary URL
-            destination_path: Path in S3 bucket (e.g., 'artwork/2024/10/image.png')
-            
-        Returns:
-            Permanent public URL
-        """
+        """Upload image to S3 bucket"""
         try:
-            logger.info(f"📥 Downloading from: {source_url[:80]}...")
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            base_name, ext = os.path.splitext(filename)
+            unique_filename = f"{base_name}_{timestamp}{ext}"
+            s3_key = f"{folder}/{unique_filename}"
             
-            # Download from Replicate
-            async with aiohttp.ClientSession() as session:
-                async with session.get(source_url, timeout=aiohttp.ClientTimeout(total=60)) as response:
-                    if response.status != 200:
-                        logger.error(f"Failed to download image: HTTP {response.status}")
-                        return None
-                    
-                    image_data = await response.read()
-                    logger.info(f"✅ Downloaded {len(image_data)} bytes")
+            content_type = mimetypes.guess_type(filename)[0] or 'image/png'
             
-            # Generate filename with hash to avoid duplicates
-            file_hash = hashlib.md5(image_data).hexdigest()[:8]
-            timestamp = datetime.now().strftime('%Y/%m/%d')
-            final_path = f"artwork/{timestamp}/{file_hash}.png"
+            upload_params = {
+                'Bucket': self.bucket_name,
+                'Key': s3_key,
+                'Body': image_data,
+                'ContentType': content_type
+            }
             
-            # Upload to S3
-            logger.info(f"📤 Uploading to S3: {final_path}")
-            self.s3_client.put_object(
-                Bucket=self.bucket,
-                Key=final_path,
-                Body=image_data,
-                ContentType='image/png',
-                ACL='public-read',  # Make publicly readable
-                CacheControl='max-age=31536000'  # Cache for 1 year
-            )
+            if metadata:
+                upload_params['Metadata'] = {k: str(v) for k, v in metadata.items()}
             
-            # Return public URL
-            public_url = f"{self.public_url}/{final_path}"
-            logger.info(f"✅ Image uploaded: {public_url}")
+            self.s3_client.put_object(**upload_params)
+            logger.info(f"Successfully uploaded image to S3: {s3_key}")
+            return s3_key
             
-            return public_url
-            
-        except aiohttp.ClientError as e:
-            logger.error(f"❌ Download error: {e}")
-            return None
         except Exception as e:
-            logger.error(f"❌ Upload error: {e}")
+            logger.error(f"Error uploading to S3: {e}")
             return None
     
-    def get_signed_upload_url(self, filename: str, expiration: int = 3600) -> str:
-        """Generate pre-signed URL for direct uploads (optional)"""
+    def get_presigned_url(
+        self, 
+        s3_key: str, 
+        expiration: int = 3600
+    ) -> Optional[str]:
+        """Generate a pre-signed URL for private S3 object"""
         try:
             url = self.s3_client.generate_presigned_url(
-                'put_object',
+                'get_object',
                 Params={
-                    'Bucket': self.bucket,
-                    'Key': f"uploads/{filename}",
-                    'ContentType': 'image/png'
+                    'Bucket': self.bucket_name,
+                    'Key': s3_key
                 },
                 ExpiresIn=expiration
             )
             return url
+            
         except Exception as e:
-            logger.error(f"Error generating signed URL: {e}")
-            return ""
+            logger.error(f"Error generating pre-signed URL: {e}")
+            return None
+    
+    def delete_image(self, s3_key: str) -> bool:
+        """Delete image from S3 bucket"""
+        try:
+            self.s3_client.delete_object(
+                Bucket=self.bucket_name,
+                Key=s3_key
+            )
+            logger.info(f"Successfully deleted image from S3: {s3_key}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting from S3: {e}")
+            return False
 
 
-# Singleton
-storage_manager = StorageManager()
+# Global instance
+_storage_manager = None
+
+def get_storage_manager() -> S3StorageManager:
+    """Get or create global S3 storage manager instance"""
+    global _storage_manager
+    if _storage_manager is None:
+        _storage_manager = S3StorageManager()
+    return _storage_manager
