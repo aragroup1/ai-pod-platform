@@ -1,3 +1,8 @@
+# app/main.py
+"""
+Main FastAPI application
+Matches your existing GitHub repo structure
+"""
 import os
 import sys
 import time
@@ -7,20 +12,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
 
-# ✅ CRITICAL FIX: Import settings at the top level
+# Import settings at top level (as in your repo)
 from app.config import settings
 
-# --- Step 1: Configure Logging Immediately ---
+# Configure logging
 logger.remove()
-logger.add(sys.stderr, level="INFO", format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>")
+logger.add(
+    sys.stderr, 
+    level="INFO", 
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+)
 logger.add("logs/app.log", rotation="10 MB", retention="7 days", level="INFO")
 
 logger.info("Application starting up...")
 
 
-# --- Step 2: Lifespan Manager ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Lifespan manager - matches your repo's pattern"""
     logger.info("Executing lifespan startup...")
     
     from app.database import db_pool
@@ -50,7 +59,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Redis initialization error: {e}")
         app.state.redis_client.is_connected = False
 
-    # Load and register API routers
+    # Load and register API routers (matches your existing imports)
     try:
         from app.api.v1 import (
             trends, products, artwork, platforms, 
@@ -59,6 +68,7 @@ async def lifespan(app: FastAPI):
         )
         from app.api.v1.dashboard import providers as dashboard_providers
         
+        # Register routers (matches your pattern)
         app.include_router(trends.router, prefix=f"{settings.API_V1_PREFIX}/trends", tags=["Trends"])
         app.include_router(products.router, prefix=f"{settings.API_V1_PREFIX}/products", tags=["Products"])
         app.include_router(artwork.router, prefix=f"{settings.API_V1_PREFIX}/artwork", tags=["Artwork"])
@@ -90,7 +100,7 @@ async def lifespan(app: FastAPI):
     logger.info("✅ Shutdown complete.")
 
 
-# --- Step 3: Create the FastAPI App ---
+# Create FastAPI app (matches your pattern)
 app = FastAPI(
     title="AI POD Platform",
     description="AI-Powered Print-on-Demand Platform with Google Trends Integration",
@@ -101,7 +111,7 @@ app = FastAPI(
 )
 
 
-# --- Step 4: Add Middleware ---
+# Add Middleware (matches your pattern)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -110,8 +120,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
+    """Add processing time header to responses"""
     start_time = time.time()
     response = await call_next(request)
     process_time = time.time() - start_time
@@ -120,23 +132,27 @@ async def add_process_time_header(request: Request, call_next):
     return response
 
 
-# --- Step 5: Health Check ---
+# Health Check (matches your pattern)
 @app.get("/health", tags=["Health"])
 async def health_check():
+    """Health check endpoint"""
     return {"status": "healthy", "version": "1.0.0"}
 
 
-# --- Step 6: Root Endpoint ---
+# Root Endpoint (matches your pattern)
 @app.get("/")
 def read_root():
+    """Root endpoint with API info"""
     return {
         "message": "Welcome to the AI POD Platform",
         "version": "1.0.0",
         "docs": "/api/docs"
     }
 
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    """Global exception handler"""
     logger.exception(f"Unhandled error for {request.method} {request.url}")
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
