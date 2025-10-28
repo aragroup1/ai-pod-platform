@@ -6,10 +6,9 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
-# app/main.py
-# In the lifespan function where routers are loaded, ADD THIS:
 
-from app.api.v1 import product_feedback
+# ✅ CRITICAL FIX: Import settings at the top level
+from app.config import settings
 
 # --- Step 1: Configure Logging Immediately ---
 logger.remove()
@@ -24,7 +23,6 @@ logger.info("Application starting up...")
 async def lifespan(app: FastAPI):
     logger.info("Executing lifespan startup...")
     
-    from app.config import settings
     from app.database import db_pool
     from app.utils.cache import redis_client
 
@@ -56,7 +54,8 @@ async def lifespan(app: FastAPI):
     try:
         from app.api.v1 import (
             trends, products, artwork, platforms, 
-            orders, analytics, test, generation, keyword_research
+            orders, analytics, test, generation, 
+            keyword_research, product_feedback
         )
         from app.api.v1.dashboard import providers as dashboard_providers
         
@@ -69,11 +68,13 @@ async def lifespan(app: FastAPI):
         app.include_router(test.router, prefix=f"{settings.API_V1_PREFIX}/test", tags=["Test"])
         app.include_router(generation.router, prefix=f"{settings.API_V1_PREFIX}/generation", tags=["Generation"])
         app.include_router(keyword_research.router, prefix=f"{settings.API_V1_PREFIX}/keyword-research", tags=["Keyword Research"])
+        app.include_router(product_feedback.router, prefix=f"{settings.API_V1_PREFIX}/product-feedback", tags=["Product Feedback"])
         app.include_router(dashboard_providers.router, prefix=f"{settings.API_V1_PREFIX}/dashboard", tags=["Dashboard"])
 
         logger.info("✅ All API routers loaded successfully.")
     except Exception as e:
         logger.error(f"❌ Failed to load routers: {e}")
+        logger.exception("Full traceback:")
 
     logger.info("🚀 Lifespan startup complete. Application is ready!")
     yield
@@ -141,9 +142,3 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "An internal server error occurred."},
     )
-
-app.include_router(
-    product_feedback.router, 
-    prefix=f"{settings.API_V1_PREFIX}/product-feedback", 
-    tags=["Product Feedback"]
-)
