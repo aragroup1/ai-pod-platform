@@ -9,7 +9,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 import logging
-
+from app.core.trends.service import TrendService
 from app.database import get_db_pool
 
 logger = logging.getLogger(__name__)
@@ -381,6 +381,106 @@ async def get_trend_analytics(db_pool: DatabasePool = Depends(get_db_pool)):
         )
         
         # Goal progress (to 10K designs)
+        products_count = await db_pool.fetchval(
+            "SELECT COUNT(*) FROM products WHERE status = 'active'"
+        ) or 0
+        
+        target = 10000
+        progress = (products_count / target) * 100 if target > 0 else 0
+        
+        return {
+            "total_trends": total,
+            "total_categories": len(categories),
+            "avg_trend_score": sum(c['avg_score'] for c in categories) / len(categories) if categories else 0,
+            "goal_progress": {
+                "target_designs": target,
+                "current_designs": products_count,
+                "designs_needed": max(0, target - products_count),
+                "progress_percentage": round(progress, 1)
+            },
+            "top_categories": [
+                {
+                    "name": c['category'],
+                    "count": c['count'],
+                    "avg_score": round(float(c['avg_score']), 2)
+                }
+                for c in categories
+            ]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/fetch")
+async def fetch_and_store_trends(
+    region: str = Query("GB", description="Region code"),
+    limit: int = Query(20, ge=1, le=50),
+    db_pool: DatabasePool = Depends(get_db_pool)
+):
+    """
+    Fetch trending keywords from Google Trends
+    """
+    try:
+        service = TrendService(db_pool)
+        trends = await service.fetch_and_store_trends(
+            region=region,
+            min_score=6.0,
+            limit=limit
+        )
+        
+        return {
+            "success": True,
+            "message": f"Fetched {len(trends)} trends",
+            "trends_stored": len(trends),
+            "trends": trends
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching trends: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/fetch-10k-initial")
+async def fetch_10k_initial(db_pool: DatabasePool = Depends(get_db_pool)):
+    """
+    🚀 Launch 10K initial keyword strategy
+    """
+    try:
+        service = TrendService(db_pool)
+        result = await service.fetch_initial_10k_keywords()
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error launching 10K strategy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/analytics")
+async def get_trend_analytics(db_pool: DatabasePool = Depends(get_db_pool)):
+    """
+    Get trend analytics for dashboard
+    """
+    try:
+        # Total trends
+        total = await db_pool.fetchval("SELECT COUNT(*) FROM trends")
+        
+        # Categories
+        categories = await db_pool.fetch(
+            """
+            SELECT 
+                category,
+                COUNT(*) as count,
+                AVG(trend_score) as avg_score
+            FROM trends
+            GROUP BY category
+            ORDER BY count DESC
+            LIMIT 10
+            """
+        )
+        
+        # Goal progress
         products_count = await db_pool.fetchval(
             "SELECT COUNT(*) FROM products WHERE status = 'active'"
         ) or 0
