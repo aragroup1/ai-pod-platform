@@ -1,314 +1,364 @@
-import asyncio
-from typing import List, Dict, Optional
-from loguru import logger
-from datetime import datetime
-import json
+"""
+Product Generator - Creates canvas wall art products from trending keywords
+Generates multiple designs per keyword based on search volume
+"""
 
-from app.database import DatabasePool
-from app.core.ai.generator import get_ai_generator
-from app.core.ai.prompt_templates import get_pricing_for_style
-from app.utils.helpers import generate_sku
+import logging
+from typing import List, Optional, Dict
+from datetime import datetime, timezone
+from sqlalchemy.orm import Session
+from sqlalchemy import select, func
 
+from app.models.product import Product
+from app.models.trend import Trend
+from app.core.artwork.generator import ArtworkGenerator
+from app.utils.s3_storage import S3StorageManager
+
+logger = logging.getLogger(__name__)
 
 class ProductGenerator:
-    """Generate POD products from trends with intelligent AI model selection"""
+    """Generates products from trending keywords with volume-based design counts"""
     
-    ALL_STYLES = [
-        'minimalist', 'abstract', 'vintage', 'watercolor',
-        'line_art', 'photography', 'typography', 'botanical'
+    # Design counts based on search volume
+    DESIGNS_PER_VOLUME = {
+        "high": 100,      # 10k+ searches/month → 100 designs
+        "medium": 50,     # 1k-10k searches/month → 50 designs
+        "low": 25,        # 100-1k searches/month → 25 designs
+        "unknown": 10     # No data → 10 designs (conservative)
+    }
+    
+    # Canvas formats and their pricing multipliers
+    CANVAS_FORMATS = {
+        "single": {
+            "name": "Single Canvas",
+            "panels": 1,
+            "dimensions": ["12x16", "16x20", "18x24", "24x36"],
+            "price_multiplier": 1.0
+        },
+        "diptych": {
+            "name": "2-Panel Diptych",
+            "panels": 2,
+            "dimensions": ["12x16", "16x20", "20x30"],
+            "price_multiplier": 1.8
+        },
+        "triptych": {
+            "name": "3-Panel Triptych",
+            "panels": 3,
+            "dimensions": ["12x16", "16x20", "20x30"],
+            "price_multiplier": 2.5
+        }
+    }
+    
+    # Art styles for variety
+    ART_STYLES = [
+        "minimalist",
+        "abstract",
+        "geometric",
+        "watercolor",
+        "vintage",
+        "modern",
+        "bohemian",
+        "rustic"
     ]
     
-    def __init__(self, db_pool: DatabasePool, testing_mode: bool = False, budget_mode: str = "balanced"):
-        self.db_pool = db_pool
-        self.ai_generator = get_ai_generator(testing_mode=testing_mode, budget_mode=budget_mode)
-        self.testing_mode = testing_mode
-        self.budget_mode = budget_mode
-        
-        logger.info(f"📦 Product Generator initialized - Testing: {testing_mode}, Budget: {budget_mode}")
+    def __init__(self, db: Session):
+        self.db = db
+        self.artwork_generator = ArtworkGenerator()
+        self.s3_storage = S3StorageManager()
     
-    async def generate_products_from_trend(
-        self,
-        trend_id: int,
-        styles: Optional[List[str]] = None,
-        upscale: bool = False
-    ) -> List[Dict]:
-        """Generate products from a single trend in multiple styles"""
+    def get_designs_needed(self, search_volume: Optional[str]) -> int:
+        """
+        Determine how many designs to create based on search volume
         
-        trend = await self.db_pool.fetchrow(
-            "SELECT * FROM trends WHERE id = $1",
-            trend_id
-        )
+        Args:
+            search_volume: "high", "medium", "low", or None
+            
+        Returns:
+            Number of designs to create
+        """
+        if not search_volume:
+            return self.DESIGNS_PER_VOLUME["unknown"]
         
-        if not trend:
-            logger.error(f"Trend {trend_id} not found")
-            return []
+        volume = search_volume.lower()
+        return self.DESIGNS_PER_VOLUME.get(volume, self.DESIGNS_PER_VOLUME["unknown"])
+    
+    async def generate_products_for_trend(
+        self, 
+        trend: Trend,
+        max_designs: Optional[int] = None
+    ) -> List[Product]:
+        """
+        Generate multiple product designs for a single trend
         
-        keyword = trend['keyword']
-        styles_to_generate = styles or self.ALL_STYLES
+        Args:
+            trend: The trend to generate products for
+            max_designs: Optional limit on number of designs (for testing)
+            
+        Returns:
+            List of created products
+        """
+        logger.info(f"🎨 Generating products for keyword: {trend.keyword}")
+        logger.info(f"   Search volume: {trend.search_volume or 'unknown'}")
         
-        logger.info(f"🎨 Generating {len(styles_to_generate)} products for trend: {keyword}")
-        logger.info(f"⚙️ Mode: {'Testing' if self.testing_mode else self.budget_mode.title()}")
+        # Determine how many designs to create
+        designs_needed = self.get_designs_needed(trend.search_volume)
+        if max_designs:
+            designs_needed = min(designs_needed, max_designs)
+        
+        logger.info(f"   Creating {designs_needed} designs")
         
         products = []
-        generation_stats = {
-            'total_cost': 0,
-            'models_used': {},
-            'generation_times': []
-        }
         
-        for style in styles_to_generate:
-            try:
-                start_time = datetime.utcnow()
-                logger.info(f"  → Creating {style} version...")
+        for design_num in range(1, designs_needed + 1):
+            logger.info(f"   Design {design_num}/{designs_needed}")
+            
+            # Rotate through art styles for variety
+            style = self.ART_STYLES[(design_num - 1) % len(self.ART_STYLES)]
+            
+            # Create products for each canvas format
+            for format_key, format_config in self.CANVAS_FORMATS.items():
+                try:
+                    product = await self._create_product_variant(
+                        trend=trend,
+                        format_key=format_key,
+                        format_config=format_config,
+                        style=style,
+                        design_number=design_num
+                    )
+                    
+                    if product:
+                        products.append(product)
+                        logger.info(f"      ✅ Created {format_config['name']} ({style})")
                 
-                artwork_data = await self.ai_generator.generate_product_artwork(
-                    keyword=keyword,
-                    style=style,
-                    upscale_for_print=upscale
-                )
-                
-                generation_time = (datetime.utcnow() - start_time).total_seconds()
-                
-                generation_stats['total_cost'] += artwork_data.get('generation_cost', 0)
-                model_used = artwork_data.get('model_key', 'unknown')
-                generation_stats['models_used'][model_used] = generation_stats['models_used'].get(model_used, 0) + 1
-                generation_stats['generation_times'].append(generation_time)
-                
-                logger.info(f"  🤖 Model: {model_used} (${artwork_data.get('generation_cost', 0)})")
-                logger.info(f"  💡 Why: {', '.join(artwork_data.get('selection_reasoning', []))}")
-                
-                # Save artwork with proper JSON serialization
-                artwork_id = await self._save_artwork(
-                    trend_id=trend_id,
-                    artwork_data=artwork_data
-                )
-                
-                product_id = await self._create_product(
-                    artwork_id=artwork_id,
-                    keyword=keyword,
-                    style=style,
-                    trend_category=trend['category']
-                )
-                
-                products.append({
-                    'product_id': product_id,
-                    'artwork_id': artwork_id,
-                    'keyword': keyword,
-                    'style': style,
-                    'model_used': model_used,
-                    'generation_cost': artwork_data.get('generation_cost', 0),
-                    'quality_score': artwork_data.get('quality_score', 0),
-                    'generation_time': generation_time
-                })
-                
-                logger.info(f"  ✅ Product created: ID {product_id} (took {generation_time:.1f}s)")
-                
-            except Exception as e:
-                logger.error(f"  ❌ Failed to create {style} product: {e}")
-                logger.exception("Full traceback:")
-                continue
+                except Exception as e:
+                    logger.error(f"      ❌ Failed to create {format_key}: {e}")
+                    continue
         
-        if products:
-            avg_time = sum(generation_stats['generation_times']) / len(generation_stats['generation_times'])
-            logger.info(f"\n📊 Generation Summary for '{keyword}':")
-            logger.info(f"  ✅ Products created: {len(products)}")
-            logger.info(f"  💰 Total cost: ${generation_stats['total_cost']:.4f}")
-            logger.info(f"  ⏱️  Average time: {avg_time:.1f}s per image")
-            logger.info(f"  🤖 Models used: {dict(generation_stats['models_used'])}")
-        
+        logger.info(f"✅ Generated {len(products)} products for '{trend.keyword}'")
         return products
     
-    async def _save_artwork(
+    async def _create_product_variant(
         self,
-        trend_id: int,
-        artwork_data: Dict
-    ) -> int:
-        """
-        ✅ FIXED: Save artwork with S3 storage and proper JSON serialization
-        """
-        from app.utils.s3_storage import get_storage_manager
+        trend: Trend,
+        format_key: str,
+        format_config: Dict,
+        style: str,
+        design_number: int
+    ) -> Optional[Product]:
+        """Create a single product variant"""
         
-        # Get the Replicate temporary URL
-        replicate_url = artwork_data['image_url']
+        # Generate artwork
+        prompt = self._create_prompt(
+            keyword=trend.keyword,
+            style=style,
+            format_type=format_key,
+            panels=format_config["panels"]
+        )
         
-        logger.info(f"💾 Saving artwork to S3...")
-        logger.debug(f"📥 Replicate URL: {replicate_url[:100]}...")
+        logger.info(f"         Generating {style} artwork...")
+        artwork_url = await self.artwork_generator.generate_artwork(prompt)
         
-        # Download from Replicate and upload to S3
-        storage = get_storage_manager()
+        if not artwork_url:
+            logger.error(f"         Failed to generate artwork")
+            return None
         
-        s3_key = await storage.download_and_upload_from_url(
-            source_url=replicate_url,
-            folder='products/generated',
-            metadata={
-                'model': artwork_data.get('model_key', 'unknown'),
-                'style': artwork_data.get('style', 'unknown'),
-                'trend_id': str(trend_id),
-                'generated_at': artwork_data.get('generated_at', datetime.utcnow().isoformat())
-            }
+        # Upload to S3
+        logger.info(f"         Uploading to S3...")
+        s3_key = await self.s3_storage.upload_from_url(
+            url=artwork_url,
+            folder=f"products/{trend.keyword.replace(' ', '-')}"
         )
         
         if not s3_key:
-            raise Exception("Failed to upload image to S3")
+            logger.error(f"         Failed to upload to S3")
+            return None
         
-        logger.info(f"✅ Image stored in S3: {s3_key}")
+        # Create product in database for each dimension
+        products_created = []
+        for dimension in format_config["dimensions"]:
+            base_price = self._calculate_price(dimension, format_config["panels"])
+            
+            product = Product(
+                title=f"{trend.keyword.title()} - {format_config['name']} - {style.title()} #{design_number}",
+                description=self._generate_description(
+                    keyword=trend.keyword,
+                    style=style,
+                    format_name=format_config['name'],
+                    dimension=dimension
+                ),
+                keyword=trend.keyword,
+                category=trend.category or "Canvas Wall Art",
+                style=style,
+                canvas_format=format_key,
+                panels=format_config["panels"],
+                dimensions=dimension,
+                price=base_price,
+                image_s3_key=s3_key,
+                design_number=design_number,
+                status="pending",
+                created_at=datetime.now(timezone.utc)
+            )
+            
+            self.db.add(product)
+            products_created.append(product)
         
-        # Create metadata dict
-        metadata = {
-            'original_replicate_url': replicate_url,
-            's3_key': s3_key,
-            'print_ready': artwork_data.get('print_ready', False),
-            'generated_at': artwork_data['generated_at'],
-            'dimensions': artwork_data['dimensions'],
-            'model_key': artwork_data.get('model_key', 'unknown'),
-            'selection_reasoning': artwork_data.get('selection_reasoning', []),
-            'keyword': artwork_data.get('keyword', '')
+        self.db.commit()
+        
+        # Return the first product as representative
+        return products_created[0] if products_created else None
+    
+    def _create_prompt(
+        self, 
+        keyword: str, 
+        style: str, 
+        format_type: str,
+        panels: int
+    ) -> str:
+        """Create AI prompt for artwork generation"""
+        
+        base_prompt = f"Create a beautiful {style} style canvas wall art"
+        
+        if panels == 1:
+            prompt = f"{base_prompt} with the theme '{keyword}'"
+        elif panels == 2:
+            prompt = f"{base_prompt} split into 2 panels (diptych) with the theme '{keyword}', ensuring visual continuity across both panels"
+        else:  # 3 panels
+            prompt = f"{base_prompt} split into 3 panels (triptych) with the theme '{keyword}', with a cohesive flow from left to right"
+        
+        # Add style-specific guidance
+        style_guidance = {
+            "minimalist": "simple lines, clean composition, lots of white space",
+            "abstract": "bold colors, expressive shapes, dynamic composition",
+            "geometric": "precise shapes, symmetrical patterns, modern aesthetic",
+            "watercolor": "soft blended colors, organic flowing forms",
+            "vintage": "aged texture, muted tones, nostalgic feel",
+            "modern": "contemporary design, sleek lines, trendy colors",
+            "bohemian": "eclectic patterns, warm earthy tones, free-spirited",
+            "rustic": "natural textures, wood tones, cozy farmhouse aesthetic"
         }
         
-        # Convert dict to JSON string
-        metadata_json = json.dumps(metadata)
+        if style in style_guidance:
+            prompt += f", {style_guidance[style]}"
         
-        try:
-            # Save S3 key in database (not the URL)
-            artwork_id = await self.db_pool.fetchval(
-                """
-                INSERT INTO artwork (
-                    prompt, provider, style, image_url,
-                    generation_cost, quality_score, trend_id, metadata
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-                RETURNING id
-                """,
-                artwork_data['prompt'],
-                artwork_data['model_used'],
-                artwork_data['style'],
-                s3_key,  # Store S3 key, not URL
-                artwork_data.get('generation_cost', 0.04 if not self.testing_mode else 0.003),
-                artwork_data.get('quality_score', 9.0),
-                trend_id,
-                metadata_json
-            )
-            
-            logger.info(f"✅ Artwork saved to database: ID {artwork_id}")
-            return artwork_id
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to save artwork to database: {e}")
-            # Cleanup S3 if database save fails
-            storage.delete_image(s3_key)
-            raise
+        prompt += ". High quality, suitable for home decor, artistic, visually striking."
+        
+        return prompt
     
-    async def _create_product(
+    def _calculate_price(self, dimension: str, panels: int) -> float:
+        """Calculate base price based on dimension and panel count"""
+        
+        # Base prices for single canvas
+        size_prices = {
+            "12x16": 29.99,
+            "16x20": 39.99,
+            "18x24": 49.99,
+            "20x30": 59.99,
+            "24x36": 79.99
+        }
+        
+        base = size_prices.get(dimension, 49.99)
+        
+        # Multiply by panel count (with slight discount)
+        if panels == 2:
+            return round(base * 1.8, 2)  # Diptych
+        elif panels == 3:
+            return round(base * 2.5, 2)  # Triptych
+        else:
+            return base
+    
+    def _generate_description(
         self,
-        artwork_id: int,
         keyword: str,
         style: str,
-        trend_category: str
-    ) -> int:
-        """Create product entry in database"""
+        format_name: str,
+        dimension: str
+    ) -> str:
+        """Generate product description"""
         
-        sku = generate_sku(prefix="POD")
-        pricing = get_pricing_for_style(style)
-        
-        # Create product title
-        title = f"{keyword.title()} - {style.replace('_', ' ').title()} Wall Art"
-        
-        # Create description
-        description = f"Premium {style.replace('_', ' ')} artwork featuring {keyword}. " \
-                      f"High-quality print perfect for home or office decor. " \
-                      f"Available in multiple sizes."
-        
-        try:
-            product_id = await self.db_pool.fetchval(
-                """
-                INSERT INTO products (
-                    sku, title, description, base_price,
-                    artwork_id, category, tags, status
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                RETURNING id
-                """,
-                sku,
-                title,
-                description,
-                pricing['base_price'],
-                artwork_id,
-                trend_category or 'wall-art',
-                [keyword, style, trend_category, 'premium', 'print'],
-                'active'
-            )
-            
-            return product_id
-            
-        except Exception as e:
-            logger.error(f"  ❌ Failed to create product: {e}")
-            logger.exception("Full traceback:")
-            raise
+        return f"""Beautiful {style} style {format_name.lower()} featuring '{keyword}'. 
+
+Perfect for living room, bedroom, office, or any space that needs a stylish focal point. 
+
+Features:
+- High-quality canvas print
+- {dimension} inches
+- Ready to hang
+- Fade-resistant inks
+- {format_name} configuration
+
+Add a touch of artistic elegance to your home decor with this stunning piece."""
     
-    async def batch_generate_from_trends(
+    async def generate_batch(
         self,
         limit: int = 10,
-        min_trend_score: float = 6.0,
-        upscale: bool = False
+        max_designs_per_keyword: Optional[int] = None
     ) -> Dict:
-        """Generate products for multiple top trends"""
+        """
+        Generate products for multiple trends
         
-        trends = await self.db_pool.fetch(
-            """
-            SELECT t.id, t.keyword, t.trend_score, t.category
-            FROM trends t
-            LEFT JOIN artwork a ON a.trend_id = t.id
-            WHERE a.id IS NULL
-            AND t.trend_score >= $1
-            ORDER BY t.trend_score DESC
-            LIMIT $2
-            """,
-            min_trend_score,
-            limit
+        Args:
+            limit: Maximum number of trends to process
+            max_designs_per_keyword: Optional limit on designs per keyword (for testing)
+            
+        Returns:
+            Summary statistics
+        """
+        logger.info(f"🚀 Starting batch generation for {limit} trends")
+        
+        # Get trends that need products
+        stmt = (
+            select(Trend)
+            .where(Trend.status == "active")
+            .order_by(Trend.search_volume.desc(), Trend.created_at.desc())
+            .limit(limit)
         )
         
-        if not trends:
-            logger.warning("No trends found without products")
-            return {'trends_processed': 0, 'products_created': 0}
+        trends = self.db.execute(stmt).scalars().all()
         
-        logger.info(f"🚀 Batch generating products for {len(trends)} trends")
-        logger.info(f"⚙️ Mode: {'Testing' if self.testing_mode else self.budget_mode.title()}")
+        if not trends:
+            logger.info("No active trends found")
+            return {
+                "trends_processed": 0,
+                "products_created": 0,
+                "message": "No active trends to process"
+            }
+        
+        logger.info(f"Found {len(trends)} trends to process")
         
         total_products = 0
-        total_cost = 0
-        all_models_used = {}
         
-        for trend in trends:
+        for i, trend in enumerate(trends, 1):
             logger.info(f"\n{'='*60}")
-            logger.info(f"Processing: {trend['keyword']} (Score: {trend['trend_score']})")
+            logger.info(f"Trend {i}/{len(trends)}: {trend.keyword}")
             logger.info(f"{'='*60}")
             
-            products = await self.generate_products_from_trend(
-                trend_id=trend['id'],
-                upscale=upscale
-            )
-            
-            for product in products:
-                total_products += 1
-                total_cost += product.get('generation_cost', 0)
-                model = product.get('model_used', 'unknown')
-                all_models_used[model] = all_models_used.get(model, 0) + 1
-            
-            await asyncio.sleep(2)
+            try:
+                products = await self.generate_products_for_trend(
+                    trend=trend,
+                    max_designs=max_designs_per_keyword
+                )
+                total_products += len(products)
+                
+                # Update trend status
+                trend.product_count = len(products)
+                trend.last_generated_at = datetime.now(timezone.utc)
+                self.db.commit()
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to generate products for '{trend.keyword}': {e}")
+                continue
+        
+        summary = {
+            "trends_processed": len(trends),
+            "products_created": total_products,
+            "average_per_trend": round(total_products / len(trends), 1) if trends else 0
+        }
         
         logger.info(f"\n{'='*60}")
         logger.info(f"✅ BATCH COMPLETE")
         logger.info(f"{'='*60}")
-        logger.info(f"📦 Products created: {total_products} from {len(trends)} trends")
-        logger.info(f"💰 Total cost: ${total_cost:.4f}")
-        logger.info(f"📊 Average cost per product: ${total_cost/total_products:.4f}" if total_products > 0 else "")
-        logger.info(f"🤖 Models used: {dict(all_models_used)}")
-        logger.info(f"{'='*60}\n")
+        logger.info(f"Trends processed: {summary['trends_processed']}")
+        logger.info(f"Products created: {summary['products_created']}")
+        logger.info(f"Average per trend: {summary['average_per_trend']}")
         
-        return {
-            'trends_processed': len(trends),
-            'products_created': total_products,
-            'styles_per_trend': len(self.ALL_STYLES),
-            'total_cost': round(total_cost, 4),
-            'avg_cost_per_product': round(total_cost / total_products, 4) if total_products > 0 else 0,
-            'models_used': all_models_used,
-            'mode': 'testing' if self.testing_mode else self.budget_mode
-        }
+        return summary
