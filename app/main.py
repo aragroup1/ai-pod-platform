@@ -11,6 +11,9 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
+from app.database import db_pool
+from app.utils.cache import cache_client
+
 
 # Import settings at top level (as in your repo)
 from app.config import settings
@@ -32,32 +35,23 @@ async def lifespan(app: FastAPI):
     """Lifespan manager - matches your repo's pattern"""
     logger.info("Executing lifespan startup...")
     
-    from app.database import db_pool
-    from app.utils.cache import redis_client
-
     # Initialize Database Pool
     app.state.db_pool = db_pool
     try:
         await app.state.db_pool.initialize()
-        if app.state.db_pool.is_connected:
-            logger.info("✅ Database pool connected successfully.")
-        else:
-            logger.warning("⚠️ Database initialization ran but failed to connect.")
+        logger.info("✅ Database pool connected successfully.")
     except Exception as e:
         logger.error(f"❌ Database initialization error: {e}")
-        app.state.db_pool.is_connected = False
+        raise
 
     # Initialize Redis Client
-    app.state.redis_client = redis_client
+    app.state.cache_client = cache_client
     try:
-        await app.state.redis_client.initialize()
-        if app.state.redis_client.is_connected:
-            logger.info("✅ Redis client connected successfully.")
-        else:
-            logger.warning("⚠️ Redis failed to connect.")
+        await app.state.cache_client.initialize()
+        logger.info("✅ Redis client connected successfully.")
     except Exception as e:
         logger.error(f"❌ Redis initialization error: {e}")
-        app.state.redis_client.is_connected = False
+        raise
 
     # Load and register API routers (matches your existing imports)
     try:
@@ -85,18 +79,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Failed to load routers: {e}")
         logger.exception("Full traceback:")
+        raise
 
     logger.info("🚀 Lifespan startup complete. Application is ready!")
     yield
     
     # Shutdown logic
     logger.info("Shutting down...")
-    if hasattr(app.state, 'db_pool') and app.state.db_pool and app.state.db_pool.is_connected:
+    if hasattr(app.state, 'db_pool') and app.state.db_pool:
         await app.state.db_pool.close()
         logger.info("Database pool closed.")
-    if hasattr(app.state, 'redis_client') and app.state.redis_client and app.state.redis_client.is_connected:
-        await app.state.redis_client.close()
-        logger.info("Redis client closed.")
+    if hasattr(app.state, 'cache_client') and app.state.cache_client:
+        await app.state.cache_client.close()
+        logger.info("Cache client closed.")
     logger.info("✅ Shutdown complete.")
 
 
