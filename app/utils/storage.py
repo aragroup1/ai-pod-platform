@@ -13,6 +13,9 @@ class S3StorageManager:
     """
     AWS S3 Storage Manager for AI POD Platform
     Handles secure image storage with private bucket and pre-signed URLs
+    
+    Region: eu-north-1 (Stockholm)
+    IAM User: ai-pod-platform-s3-user
     """
     
     def __init__(self):
@@ -20,10 +23,13 @@ class S3StorageManager:
         self.aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
         self.aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
         self.bucket_name = os.getenv('AWS_S3_BUCKET_NAME')
-        self.region = os.getenv('AWS_REGION', 'us-east-1')
+        self.region = os.getenv('AWS_REGION', 'eu-north-1')
         
         if not all([self.aws_access_key, self.aws_secret_key, self.bucket_name]):
             logger.error("❌ Missing AWS credentials in environment variables")
+            logger.error(f"   AWS_ACCESS_KEY_ID: {'✓' if self.aws_access_key else '✗'}")
+            logger.error(f"   AWS_SECRET_ACCESS_KEY: {'✓' if self.aws_secret_key else '✗'}")
+            logger.error(f"   AWS_S3_BUCKET_NAME: {'✓' if self.bucket_name else '✗'}")
             raise ValueError("Missing required AWS credentials in environment variables")
         
         # Initialize S3 client
@@ -34,7 +40,9 @@ class S3StorageManager:
             region_name=self.region
         )
         
-        logger.info(f"✅ S3 Storage Manager initialized for bucket: {self.bucket_name}")
+        logger.info(f"✅ S3 Storage Manager initialized")
+        logger.info(f"   Bucket: {self.bucket_name}")
+        logger.info(f"   Region: {self.region}")
     
     async def download_and_upload_from_url(
         self,
@@ -82,6 +90,7 @@ class S3StorageManager:
             
         except Exception as e:
             logger.error(f"❌ Error in download_and_upload: {e}")
+            logger.exception("Full traceback:")
             return None
     
     async def upload_image(
@@ -108,7 +117,8 @@ class S3StorageManager:
                 'Bucket': self.bucket_name,
                 'Key': s3_key,
                 'Body': image_data,
-                'ContentType': content_type
+                'ContentType': content_type,
+                'ServerSideEncryption': 'AES256'  # Encrypt at rest
             }
             
             if metadata:
@@ -126,6 +136,7 @@ class S3StorageManager:
             
         except Exception as e:
             logger.error(f"❌ Error uploading to S3: {e}")
+            logger.exception("Full traceback:")
             return None
     
     def get_presigned_url(
@@ -155,7 +166,7 @@ class S3StorageManager:
             return url
             
         except Exception as e:
-            logger.error(f"❌ Error generating pre-signed URL: {e}")
+            logger.error(f"❌ Error generating pre-signed URL for {s3_key}: {e}")
             return None
     
     def delete_image(self, s3_key: str) -> bool:
@@ -186,6 +197,37 @@ class S3StorageManager:
                 return False
             logger.error(f"❌ Error checking S3 object: {e}")
             return False
+    
+    def get_bucket_stats(self) -> Dict:
+        """Get statistics about S3 bucket usage"""
+        try:
+            # List objects and calculate stats
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            
+            total_size = 0
+            total_count = 0
+            
+            for page in paginator.paginate(Bucket=self.bucket_name):
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        total_size += obj['Size']
+                        total_count += 1
+            
+            return {
+                "total_objects": total_count,
+                "total_size_bytes": total_size,
+                "total_size_mb": round(total_size / (1024 * 1024), 2),
+                "total_size_gb": round(total_size / (1024 * 1024 * 1024), 2),
+                "bucket": self.bucket_name,
+                "region": self.region
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting bucket stats: {e}")
+            return {
+                "error": str(e),
+                "bucket": self.bucket_name
+            }
 
 
 # Global instance
