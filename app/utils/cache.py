@@ -5,6 +5,7 @@ import json
 from typing import Optional, Any
 from app.config import settings
 
+
 class RedisClient:
     def __init__(self):
         self.client = None
@@ -64,8 +65,10 @@ class RedisClient:
         except:
             return False
 
+
 # Global Redis client instance
 redis_client = RedisClient()
+
 
 # Dummy cache decorator for when Redis is not available
 def cache_result(ttl: int = 300):
@@ -76,24 +79,28 @@ def cache_result(ttl: int = 300):
         return wrapper
     return decorator
 
+
 class CacheClient:
     """Manages Redis connection for caching"""
     
     def __init__(self):
         self.client: Optional[redis.Redis] = None
     
-  async def initialize(self):
-    try:
-        if not settings.REDIS_URL:
-            logger.warning("Redis URL not configured, skipping cache initialization")
-            self.redis = None
-            return
+    async def initialize(self):
+        """Initialize Redis connection"""
+        try:
+            if not settings.REDIS_URL:
+                logger.warning("Redis URL not configured, skipping cache initialization")
+                self.client = None
+                return
             
-        self.redis = await aioredis.from_url(
-            settings.REDIS_URL,  # ✅ Correct - uses the URL directly
-            encoding="utf-8",
-            decode_responses=True
-        )
+            # Use redis.from_url (not aioredis)
+            self.client = redis.from_url(
+                settings.REDIS_URL,
+                encoding="utf-8",
+                decode_responses=True
+            )
+            
             # Test connection
             await self.client.ping()
             logger.info("Redis connected successfully")
