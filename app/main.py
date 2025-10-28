@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
 from app.database import db_pool
-from app.utils.cache import cache_client
+from app.utils.cache import redis_client as cache_client
 
 
 # Import settings at top level (as in your repo)
