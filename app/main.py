@@ -6,6 +6,10 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
+# app/main.py
+# In the lifespan function where routers are loaded, ADD THIS:
+
+from app.api.v1 import product_feedback
 
 # --- Step 1: Configure Logging Immediately ---
 logger.remove()
@@ -137,3 +141,9 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "An internal server error occurred."},
     )
+
+app.include_router(
+    product_feedback.router, 
+    prefix=f"{settings.API_V1_PREFIX}/product-feedback", 
+    tags=["Product Feedback"]
+)
