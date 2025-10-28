@@ -1,3 +1,4 @@
+// pod-dashboard/src/app/page.tsx
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -8,11 +9,11 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { 
   DollarSign, ShoppingCart, TrendingUp, Palette, AlertCircle, RefreshCw, 
   Zap, Info, Brain, Image as ImageIcon, ExternalLink, LayoutGrid, 
-  Check, X, Trash2, Rocket, Calendar, Settings, Target, Package
+  Check, X, Trash2, Rocket, Calendar, Settings, Target, Package, ThumbsUp, ThumbsDown
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 
-// --- Data Interfaces ---
+// Interfaces
 interface DashboardStats {
   revenue: number;
   orders: number;
@@ -63,7 +64,6 @@ interface TrendAnalytics {
   }>;
 }
 
-// --- Main Dashboard Component ---
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentProducts, setRecentProducts] = useState<Product[]>([]);
@@ -77,13 +77,12 @@ export default function DashboardPage() {
   const [showGallery, setShowGallery] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
-  const [rejectedProducts, setRejectedProducts] = useState<Set<number>>(new Set());
   
   // Generation settings
   const [budgetMode, setBudgetMode] = useState<'cheap' | 'balanced' | 'quality'>('balanced');
   const [testingMode, setTestingMode] = useState(true);
   const [trendsToGenerate, setTrendsToGenerate] = useState(10);
-  const [dailyGenerationTarget, setDailyGenerationTarget] = useState(100); // New designs per day
+  const [dailyGenerationTarget, setDailyGenerationTarget] = useState(100);
   const [autoGeneration, setAutoGeneration] = useState(false);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app';
@@ -101,18 +100,10 @@ export default function DashboardPage() {
       setError(null);
 
       const [statsResponse, productsResponse, genStatusResponse, analyticsResponse] = await Promise.all([
-        fetch(`${API_URL}/api/v1/analytics/dashboard`, {
-          headers: { 'Accept': 'application/json' }
-        }).catch(e => null),
-        fetch(`${API_URL}/api/v1/products/?limit=100`, {
-          headers: { 'Accept': 'application/json' }
-        }).catch(e => null),
-        fetch(`${API_URL}/api/v1/generation/status`, {
-          headers: { 'Accept': 'application/json' }
-        }).catch(e => null),
-        fetch(`${API_URL}/api/v1/trends/analytics`, {
-          headers: { 'Accept': 'application/json' }
-        }).catch(e => null)
+        fetch(`${API_URL}/api/v1/analytics/dashboard`).catch(() => null),
+        fetch(`${API_URL}/api/v1/products/?limit=100&status=active`).catch(() => null), // Only fetch active products
+        fetch(`${API_URL}/api/v1/generation/status`).catch(() => null),
+        fetch(`${API_URL}/api/v1/trends/analytics`).catch(() => null)
       ]);
 
       if (statsResponse?.ok) {
@@ -127,20 +118,15 @@ export default function DashboardPage() {
       
       if (productsResponse?.ok) {
         const productsData = await productsResponse.json();
-        const filteredProducts = (productsData.products || []).filter(
-          (p: Product) => !rejectedProducts.has(p.id)
-        );
-        setRecentProducts(filteredProducts);
+        setRecentProducts(productsData.products || []);
       }
       
       if (genStatusResponse?.ok) {
-        const genStatusData = await genStatusResponse.json();
-        setGenStatus(genStatusData);
+        setGenStatus(await genStatusResponse.json());
       }
       
       if (analyticsResponse?.ok) {
-        const analyticsData = await analyticsResponse.json();
-        setTrendAnalytics(analyticsData);
+        setTrendAnalytics(await analyticsResponse.json());
       }
 
     } catch (err: any) {
@@ -151,7 +137,57 @@ export default function DashboardPage() {
     }
   };
 
-  // Launch 10K Initial Keywords
+  // ✅ FIXED: Approve product with API call
+  const approveProduct = async (productId: number) => {
+    try {
+      const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_id: productId,
+          action: 'approve'
+        })
+      });
+
+      if (!response.ok) throw new Error('Approval failed');
+
+      toast.success(`Product approved for Shopify!`, {
+        icon: <Check className="h-4 w-4" />
+      });
+      
+      // Remove from gallery
+      setRecentProducts(prev => prev.filter(p => p.id !== productId));
+      fetchData(); // Refresh stats
+    } catch (err: any) {
+      toast.error(`Approval failed: ${err.message}`);
+    }
+  };
+
+  // ✅ FIXED: Reject product with API call (persistent)
+  const rejectProduct = async (productId: number) => {
+    try {
+      const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_id: productId,
+          action: 'reject'
+        })
+      });
+
+      if (!response.ok) throw new Error('Rejection failed');
+
+      // Remove from UI immediately
+      setRecentProducts(prev => prev.filter(p => p.id !== productId));
+      
+      toast.success(`Product rejected (won't reappear)`, {
+        icon: <ThumbsDown className="h-4 w-4" />
+      });
+    } catch (err: any) {
+      toast.error(`Rejection failed: ${err.message}`);
+    }
+  };
+
   const launch10KInitial = async () => {
     if (!API_URL) return;
 
@@ -160,13 +196,10 @@ export default function DashboardPage() {
 
     try {
       const response = await fetch(`${API_URL}/api/v1/trends/fetch-10k-initial`, {
-        method: 'POST',
-        headers: { 'Accept': 'application/json' }
+        method: 'POST'
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to launch 10K strategy');
-      }
+      if (!response.ok) throw new Error('Failed to launch 10K strategy');
 
       const data = await response.json();
       
@@ -175,16 +208,13 @@ export default function DashboardPage() {
           <div>
             <strong>10K Strategy Launched!</strong>
             <br />
-            {data.keywords_stored} keywords stored across {data.categories} categories
+            {data.keywords_stored} keywords stored
             <br />
-            Total designs planned: {data.total_designs_planned}
-            <br />
-            <small>Est. cost: {data.estimated_cost.testing_mode} (test) / {data.estimated_cost.production_mode} (prod)</small>
+            Total designs: {data.total_designs_planned}
           </div>,
           { duration: 10000 }
         );
         
-        // Refresh data to show new keywords
         setTimeout(fetchData, 2000);
       } else {
         toast.error(data.message || "Launch failed");
@@ -197,7 +227,6 @@ export default function DashboardPage() {
     }
   };
 
-  // Fetch Trends (Regular)
   const fetchTrends = async () => {
     if (!API_URL) return;
 
@@ -206,26 +235,15 @@ export default function DashboardPage() {
 
     try {
       const response = await fetch(`${API_URL}/api/v1/trends/fetch?region=GB&limit=20`, {
-        method: 'POST',
-        headers: { 'Accept': 'application/json' }
+        method: 'POST'
       });
 
-      if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(errorData || 'Failed to fetch trends');
-      }
+      if (!response.ok) throw new Error('Failed to fetch trends');
 
       const data = await response.json();
       
       if (data.success) {
-        toast.success(
-          <div>
-            <strong>{data.message}</strong>
-            <br />
-            <small>{data.trends_stored} keywords stored</small>
-          </div>,
-          { duration: 5000 }
-        );
+        toast.success(`${data.message} - ${data.trends_stored} keywords stored`, { duration: 5000 });
       } else {
         toast.warning(data.message || "No new trends found");
       }
@@ -239,9 +257,8 @@ export default function DashboardPage() {
     }
   };
 
-  // Calculate daily generation needs
   const calculateDailyGeneration = () => {
-    const trendsPerDay = Math.ceil(dailyGenerationTarget / 8); // 8 styles per trend
+    const trendsPerDay = Math.ceil(dailyGenerationTarget / 8);
     const costPerDay = testingMode ? 
       (dailyGenerationTarget * 0.003) : 
       (dailyGenerationTarget * 0.04);
@@ -256,7 +273,6 @@ export default function DashboardPage() {
     };
   };
 
-  // Generate Products
   const generateProducts = async (customTrendCount?: number) => {
     if (!API_URL) return;
 
@@ -264,15 +280,12 @@ export default function DashboardPage() {
     setIsGenerating(true);
     
     const modeLabel = testingMode ? 'Testing' : budgetMode;
-    toast.info(`Starting generation of ${trendsCount * 8} products in ${modeLabel} mode...`);
+    toast.info(`Starting generation: ${trendsCount * 8} products (${modeLabel} mode)...`);
 
     try {
       const response = await fetch(`${API_URL}/api/v1/generation/batch-generate`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           limit: trendsCount,
           min_trend_score: 6.0,
@@ -285,10 +298,7 @@ export default function DashboardPage() {
       if (!response.ok) throw new Error('Generation failed');
 
       const data = await response.json();
-      toast.success(
-        `Generating ${data.expected_products} products! Cost: ${data.estimated_cost}`,
-        { duration: 8000 }
-      );
+      toast.success(`Generating ${data.expected_products} products! Cost: ${data.estimated_cost}`, { duration: 8000 });
       
       setTimeout(fetchData, 10000);
       setTimeout(fetchData, 30000);
@@ -301,30 +311,10 @@ export default function DashboardPage() {
     }
   };
 
-  // Approve product
-  const approveProduct = async (productId: number) => {
-    try {
-      toast.success(`Product ${productId} approved for Shopify!`);
-      fetchData();
-    } catch (err: any) {
-      toast.error(`Approval failed: ${err.message}`);
-    }
-  };
-
-  // Reject product
-  const rejectProduct = async (productId: number) => {
-    setRejectedProducts(prev => new Set(prev).add(productId));
-    setRecentProducts(prev => prev.filter(p => p.id !== productId));
-    toast.success(`Product removed from view`, {
-      icon: <Trash2 className="h-4 w-4" />
-    });
-  };
-
   useEffect(() => {
     fetchData();
   }, []);
 
-  // Auto-generation logic
   useEffect(() => {
     if (autoGeneration && !isGenerating && genStatus) {
       const interval = setInterval(() => {
@@ -332,7 +322,7 @@ export default function DashboardPage() {
         if ((genStatus.total_products % dailyGenerationTarget) === 0) {
           generateProducts(dailyCalc.trendsNeeded);
         }
-      }, 3600000); // Check every hour
+      }, 3600000);
       
       return () => clearInterval(interval);
     }
@@ -351,13 +341,9 @@ export default function DashboardPage() {
     );
   }
 
-  const productsWithImages = recentProducts.filter(p => 
-    p.artwork?.image_url && !rejectedProducts.has(p.id)
-  );
-
+  const productsWithImages = recentProducts.filter(p => p.artwork?.image_url);
   const dailyCalc = calculateDailyGeneration();
 
-  // Progress chart data
   const progressData = [
     { name: 'Current', designs: genStatus?.total_products || 0 },
     { name: '10K Goal', designs: 10000 },
@@ -366,7 +352,8 @@ export default function DashboardPage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center p-4 md:p-8 bg-muted/40">
-      <Toaster richColors position="top-right" />
+      {/* ✅ FIXED: Move toaster to bottom-left to avoid covering buttons */}
+      <Toaster richColors position="bottom-left" />
       
       <div className="w-full max-w-7xl space-y-6">
         {/* Header */}
@@ -381,25 +368,15 @@ export default function DashboardPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button 
-              onClick={fetchData} 
-              variant="outline"
-              disabled={loading}
-            >
+            <Button onClick={fetchData} variant="outline" disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            <Button 
-              onClick={() => setShowSettings(!showSettings)}
-              variant="outline"
-            >
+            <Button onClick={() => setShowSettings(!showSettings)} variant="outline">
               <Settings className="h-4 w-4 mr-2" />
               Settings
             </Button>
-            <Button
-              onClick={() => setShowGallery(!showGallery)}
-              variant={showGallery ? "default" : "outline"}
-            >
+            <Button onClick={() => setShowGallery(!showGallery)} variant={showGallery ? "default" : "outline"}>
               <LayoutGrid className="h-4 w-4 mr-2" />
               Gallery ({productsWithImages.length})
             </Button>
@@ -414,14 +391,11 @@ export default function DashboardPage() {
                 <Settings className="h-5 w-5" />
                 Daily Generation Settings
               </CardTitle>
-              <CardDescription>
-                Configure your automated design generation strategy
-              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="text-sm font-medium mb-2 block">Daily Target (designs)</label>
+                  <label className="text-sm font-medium mb-2 block">Daily Target</label>
                   <div className="flex gap-1">
                     {[50, 100, 200, 500, 1000].map(num => (
                       <Button
@@ -451,7 +425,6 @@ export default function DashboardPage() {
                 <div className="text-sm space-y-1">
                   <p><strong>Daily:</strong> {dailyCalc.trendsNeeded} trends = {dailyGenerationTarget} designs</p>
                   <p><strong>Cost:</strong> £{dailyCalc.dailyCost.toFixed(2)}/day</p>
-                  <p><strong>Monthly:</strong> {dailyCalc.monthlyDesigns} designs for £{dailyCalc.monthlyCost.toFixed(2)}</p>
                   <p><strong>10K in:</strong> {dailyCalc.daysTo10K} days</p>
                 </div>
               </div>
@@ -534,7 +507,7 @@ export default function DashboardPage() {
               {productsWithImages.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                   <ImageIcon className="h-16 w-16 mx-auto mb-4 opacity-20" />
-                  <p>No products to display.</p>
+                  <p>No products to display</p>
                   <p className="text-sm mt-2">Generate some products to see them here!</p>
                 </div>
               ) : (
@@ -562,25 +535,23 @@ export default function DashboardPage() {
                           <div className="flex justify-between items-center">
                             <span className="text-xs font-bold">£{product.base_price}</span>
                             <div className="flex gap-1">
-                              {product.status === 'active' && (
-                                <>
-                                  <Button 
-                                    size="sm" 
-                                    className="h-6 w-6 p-0"
-                                    onClick={() => approveProduct(product.id)}
-                                  >
-                                    <Check className="h-3 w-3" />
-                                  </Button>
-                                  <Button 
-                                    size="sm" 
-                                    variant="destructive"
-                                    className="h-6 w-6 p-0"
-                                    onClick={() => rejectProduct(product.id)}
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </Button>
-                                </>
-                              )}
+                              <Button 
+                                size="sm" 
+                                className="h-6 w-6 p-0"
+                                onClick={() => approveProduct(product.id)}
+                                title="Approve for Shopify"
+                              >
+                                <Check className="h-3 w-3" />
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="destructive"
+                                className="h-6 w-6 p-0"
+                                onClick={() => rejectProduct(product.id)}
+                                title="Reject (won't show again)"
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
                             </div>
                           </div>
                         </div>
