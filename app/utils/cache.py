@@ -82,15 +82,18 @@ class CacheClient:
     def __init__(self):
         self.client: Optional[redis.Redis] = None
     
-    async def initialize(self):
-        """Initialize Redis connection"""
-        try:
-            self.client = redis.Redis(
-                host=settings.REDIS_HOST,
-                port=settings.REDIS_PORT,
-                password=settings.REDIS_PASSWORD,
-                decode_responses=True
-            )
+  async def initialize(self):
+    try:
+        if not settings.REDIS_URL:
+            logger.warning("Redis URL not configured, skipping cache initialization")
+            self.redis = None
+            return
+            
+        self.redis = await aioredis.from_url(
+            settings.REDIS_URL,  # ✅ Correct - uses the URL directly
+            encoding="utf-8",
+            decode_responses=True
+        )
             # Test connection
             await self.client.ping()
             logger.info("Redis connected successfully")
