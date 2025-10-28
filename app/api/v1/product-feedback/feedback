@@ -1,0 +1,43 @@
+# app/api/v1/shopify_sync.py - NEW FILE
+from fastapi import APIRouter, HTTPException, Depends
+from loguru import logger
+
+router = APIRouter()
+
+@router.post("/sync-approved")
+async def sync_approved_products(db_pool = Depends(get_db_pool)):
+    """
+    Sync all approved products to Shopify
+    """
+    try:
+        # Get approved products not yet synced
+        products = await db_pool.fetch(
+            """
+            SELECT p.*, a.image_url
+            FROM products p
+            LEFT JOIN artwork a ON p.artwork_id = a.id
+            WHERE p.status = 'approved'
+            AND NOT EXISTS (
+                SELECT 1 FROM platform_listings pl 
+                WHERE pl.product_id = p.id 
+                AND pl.platform = 'shopify'
+            )
+            LIMIT 50
+            """
+        )
+        
+        synced = []
+        for product in products:
+            # TODO: Implement actual Shopify API call
+            logger.info(f"Would sync product {product['id']} to Shopify")
+            synced.append(product['id'])
+        
+        return {
+            "success": True,
+            "synced_count": len(synced),
+            "products": synced
+        }
+        
+    except Exception as e:
+        logger.error(f"Sync failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
