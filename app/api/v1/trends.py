@@ -9,6 +9,73 @@ from app.core.trends.service import TrendService
 
 router = APIRouter()
 
+@router.post("/manual", response_model=dict)
+async def add_manual_keywords(
+    keywords: List[str],
+    category: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Manually add keywords to the database
+    
+    Request body:
+    {
+        "keywords": ["dog mom", "cat lover", "coffee addict"],
+        "category": "Lifestyle"  // optional
+    }
+    """
+    try:
+        logger.info(f"📝 Manually adding {len(keywords)} keywords")
+        
+        added = 0
+        skipped = 0
+        
+        for keyword_text in keywords:
+            keyword_text = keyword_text.strip().lower()
+            
+            if not keyword_text:
+                continue
+            
+            # Check if already exists
+            existing = db.query(Trend).filter(
+                Trend.keyword == keyword_text
+            ).first()
+            
+            if existing:
+                logger.info(f"   ⏭️  Skipped '{keyword_text}' (already exists)")
+                skipped += 1
+                continue
+            
+            # Create new trend
+            trend = Trend(
+                keyword=keyword_text,
+                category=category or "Manual Entry",
+                search_volume="unknown",
+                status="active",
+                source="manual_input",
+                created_at=datetime.now(timezone.utc)
+            )
+            
+            db.add(trend)
+            added += 1
+            logger.info(f"   ✅ Added '{keyword_text}'")
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "keywords_added": added,
+            "keywords_skipped": skipped,
+            "total_submitted": len(keywords),
+            "message": f"Added {added} new keywords, skipped {skipped} duplicates"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to add manual keywords: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to add keywords: {str(e)}"
+        )
 
 @router.get("/")
 async def get_trends(
