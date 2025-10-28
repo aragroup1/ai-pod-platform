@@ -1,10 +1,10 @@
 # Core Framework
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-dotenv==1.0.0
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-dotenv==1.0.1
 python-multipart==0.0.6
-pydantic==2.5.0
-pydantic-settings==2.1.0
+pydantic==2.9.2
+pydantic-settings==2.6.0
 
 # Database
 asyncpg==0.29.0
@@ -14,7 +14,7 @@ pgvector==0.2.3
 psycopg2-binary==2.9.9
 
 # Redis & Caching
-redis==5.0.1
+redis==5.2.0
 aiocache==0.12.2
 hiredis==2.2.3
 
@@ -26,12 +26,12 @@ flower==2.0.1
 replicate==0.22.0
 openai==1.3.5
 pillow==10.1.0
-httpx==0.25.2
+httpx==0.27.2
 aiohttp==3.9.1
 jinja2==3.1.2
 
 # Cloud Storage
-boto3==1.29.7
+boto3==1.35.36
 aioboto3==12.1.0
 aiofiles==23.2.1
 
@@ -69,9 +69,10 @@ schedule==1.2.0
 # isort==5.12.0
 
 # Add these lines
-replicate==0.22.0
+replicate==1.0.4
 Pillow==10.1.0
 aiohttp==3.9.1
+anthropic==0.39.0
 
 # Add to existing file
 google-ads==23.1.0
