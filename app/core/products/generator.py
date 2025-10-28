@@ -118,60 +118,86 @@ class ProductGenerator:
         
         return products
     
-    async def _save_artwork(
-        self,
-        trend_id: int,
-        artwork_data: Dict
-    ) -> int:
-        """
-        ✅ CRITICAL FIX: Save artwork with proper JSON serialization
-        """
-        
-        final_url = artwork_data['image_url']
-        
-        # ✅ Create metadata dict
-        metadata = {
-            'original_url': artwork_data['image_url'],
-            'print_ready': artwork_data.get('print_ready', False),
-            'generated_at': artwork_data['generated_at'],
-            'dimensions': artwork_data['dimensions'],
-            'model_key': artwork_data.get('model_key', 'unknown'),
-            'selection_reasoning': artwork_data.get('selection_reasoning', []),
-            'keyword': artwork_data.get('keyword', '')
+   # Find this method in app/core/products/generator.py and replace it:
+
+async def _save_artwork(
+    self,
+    trend_id: int,
+    artwork_data: Dict
+) -> int:
+    """
+    ✅ FIXED: Save artwork with S3 storage and proper JSON serialization
+    """
+    from app.utils.s3_storage import get_storage_manager
+    
+    # Get the Replicate temporary URL
+    replicate_url = artwork_data['image_url']
+    
+    logger.info(f"💾 Saving artwork to S3...")
+    logger.debug(f"📥 Replicate URL: {replicate_url[:100]}...")
+    
+    # Download from Replicate and upload to S3
+    storage = get_storage_manager()
+    
+    s3_key = await storage.download_and_upload_from_url(
+        source_url=replicate_url,
+        folder='products/generated',
+        metadata={
+            'model': artwork_data.get('model_key', 'unknown'),
+            'style': artwork_data.get('style', 'unknown'),
+            'trend_id': str(trend_id),
+            'generated_at': artwork_data.get('generated_at', datetime.utcnow().isoformat())
         }
+    )
+    
+    if not s3_key:
+        raise Exception("Failed to upload image to S3")
+    
+    logger.info(f"✅ Image stored in S3: {s3_key}")
+    
+    # ✅ Create metadata dict
+    metadata = {
+        'original_replicate_url': replicate_url,
+        's3_key': s3_key,
+        'print_ready': artwork_data.get('print_ready', False),
+        'generated_at': artwork_data['generated_at'],
+        'dimensions': artwork_data['dimensions'],
+        'model_key': artwork_data.get('model_key', 'unknown'),
+        'selection_reasoning': artwork_data.get('selection_reasoning', []),
+        'keyword': artwork_data.get('keyword', '')
+    }
+    
+    # ✅ Convert dict to JSON string
+    metadata_json = json.dumps(metadata)
+    
+    try:
+        # Save S3 key in database (not the URL)
+        artwork_id = await self.db_pool.fetchval(
+            """
+            INSERT INTO artwork (
+                prompt, provider, style, image_url,
+                generation_cost, quality_score, trend_id, metadata
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+            RETURNING id
+            """,
+            artwork_data['prompt'],
+            artwork_data['model_used'],
+            artwork_data['style'],
+            s3_key,  # ✅ Store S3 key, not URL
+            artwork_data.get('generation_cost', 0.04 if not self.testing_mode else 0.003),
+            artwork_data.get('quality_score', 9.0),
+            trend_id,
+            metadata_json
+        )
         
-        # ✅ CRITICAL FIX: Convert dict to JSON string
-        metadata_json = json.dumps(metadata)
+        logger.info(f"✅ Artwork saved to database: ID {artwork_id}")
+        return artwork_id
         
-        logger.debug(f"💾 Saving artwork with URL: {final_url[:80]}...")
-        logger.debug(f"📋 Metadata: {metadata_json[:100]}...")
-        
-        try:
-            artwork_id = await self.db_pool.fetchval(
-                """
-                INSERT INTO artwork (
-                    prompt, provider, style, image_url,
-                    generation_cost, quality_score, trend_id, metadata
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-                RETURNING id
-                """,
-                artwork_data['prompt'],
-                artwork_data['model_used'],
-                artwork_data['style'],
-                final_url,
-                artwork_data.get('generation_cost', 0.04 if not self.testing_mode else 0.003),
-                artwork_data.get('quality_score', 9.0),
-                trend_id,
-                metadata_json  # ✅ Pass as JSON string, not dict
-            )
-            
-            logger.info(f"  💾 Artwork saved: ID {artwork_id}")
-            return artwork_id
-            
-        except Exception as e:
-            logger.error(f"  ❌ Failed to save artwork: {e}")
-            logger.exception("Full traceback:")
-            raise
+    except Exception as e:
+        logger.error(f"❌ Failed to save artwork to database: {e}")
+        # Cleanup S3 if database save fails
+        storage.delete_image(s3_key)
+        raise
     
     async def _create_product(
         self,
