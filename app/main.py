@@ -11,9 +11,6 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
-from app.database import db_pool
-from app.utils.cache import redis_client as cache_client
-
 
 # Import settings at top level (as in your repo)
 from app.config import settings
@@ -34,6 +31,9 @@ logger.info("Application starting up...")
 async def lifespan(app: FastAPI):
     """Lifespan manager - matches your repo's pattern"""
     logger.info("Executing lifespan startup...")
+    
+    from app.database import db_pool
+    from app.utils.cache import cache_client
     
     # Initialize Database Pool
     app.state.db_pool = db_pool
