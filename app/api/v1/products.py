@@ -2,12 +2,60 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional, List
 from loguru import logger
 import json
-
+from app.utils.s3_storage import get_storage_manager
 from app.database import DatabasePool
 from app.dependencies import get_db_pool
 
 router = APIRouter()
 
+
+# Add this new endpoint anywhere in the file
+@router.get("/image/{artwork_id}")
+async def get_product_image(
+    artwork_id: int,
+    expiration: int = Query(3600, ge=300, le=86400),  # 5 min to 24 hours
+    db_pool: DatabasePool = Depends(get_db_pool)
+):
+    """
+    Get pre-signed URL for product image
+    
+    Args:
+        artwork_id: Artwork ID
+        expiration: URL expiration in seconds (default: 1 hour)
+    
+    Returns:
+        Temporary URL to access the image
+    """
+    try:
+        # Get artwork from database
+        artwork = await db_pool.fetchrow(
+            "SELECT image_url FROM artwork WHERE id = $1",
+            artwork_id
+        )
+        
+        if not artwork:
+            raise HTTPException(status_code=404, detail="Artwork not found")
+        
+        s3_key = artwork['image_url']
+        
+        # Generate pre-signed URL
+        storage = get_storage_manager()
+        url = storage.get_presigned_url(s3_key, expiration=expiration)
+        
+        if not url:
+            raise HTTPException(status_code=500, detail="Failed to generate image URL")
+        
+        return {
+            "url": url,
+            "expires_in": expiration,
+            "expires_at": (datetime.utcnow().timestamp() + expiration)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting product image: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/")
 async def get_products(
