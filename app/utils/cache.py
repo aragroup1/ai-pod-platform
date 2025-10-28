@@ -3,6 +3,7 @@ from loguru import logger
 import os
 import json
 from typing import Optional, Any
+from app.config import settings
 
 class RedisClient:
     def __init__(self):
@@ -74,3 +75,35 @@ def cache_result(ttl: int = 300):
             return await func(*args, **kwargs)
         return wrapper
     return decorator
+
+class CacheClient:
+    """Manages Redis connection for caching"""
+    
+    def __init__(self):
+        self.client: Optional[redis.Redis] = None
+    
+    async def initialize(self):
+        """Initialize Redis connection"""
+        try:
+            self.client = redis.Redis(
+                host=settings.REDIS_HOST,
+                port=settings.REDIS_PORT,
+                password=settings.REDIS_PASSWORD,
+                decode_responses=True
+            )
+            # Test connection
+            await self.client.ping()
+            logger.info("Redis connected successfully")
+        except Exception as e:
+            logger.error(f"Failed to connect to Redis: {e}")
+            raise
+    
+    async def close(self):
+        """Close Redis connection"""
+        if self.client:
+            await self.client.close()
+            logger.info("Redis connection closed")
+
+
+# Global cache client instance
+cache_client = CacheClient()
