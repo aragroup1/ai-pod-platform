@@ -5,7 +5,19 @@ Matches your existing repo structure
 """
 from fastapi import Request, HTTPException, status
 from typing import Optional
+from typing import AsyncGenerator
+import asyncpg
+from app.database import get_db_pool
 
+async def get_db() -> AsyncGenerator[asyncpg.Connection, None]:
+    """
+    Get a database connection from the pool.
+    Automatically returns connection to pool after use.
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        yield connection
+        
 async def get_db_pool(request: Request):
     """
     Dependency to get the database pool from app state.
