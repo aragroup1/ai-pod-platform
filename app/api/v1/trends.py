@@ -1,21 +1,22 @@
 # ========================================
-# ADD THESE ENDPOINTS TO: app/api/v1/trends.py
+# CORRECTED ENDPOINTS FOR YOUR PROJECT
+# Add these to: app/api/v1/trends.py
 # ========================================
+# Your project uses direct database queries (asyncpg), NOT SQLAlchemy models
 
-# Add these imports at the top:
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
-
-from app.database import get_db
-from app.models.keyword import Keyword
 import logging
+
+from app.database import get_db_pool
 
 logger = logging.getLogger(__name__)
 
-# Add these Pydantic models:
+router = APIRouter()
+
+# Pydantic models
 class ManualKeywordInput(BaseModel):
     keywords_text: str
     category: Optional[str] = "general"
@@ -31,18 +32,17 @@ class BatchKeywordImport(BaseModel):
     keywords: List[KeywordCreate]
 
 # ========================================
-# NEW ENDPOINT 1: MANUAL KEYWORD INPUT
+# ENDPOINT 1: MANUAL KEYWORD INPUT
 # ========================================
 @router.post("/manual-add")
-async def add_manual_keywords(
-    input_data: ManualKeywordInput,
-    db: Session = Depends(get_db)
-):
+async def add_manual_keywords(input_data: ManualKeywordInput):
     """
     Add keywords manually from dashboard
     Accepts comma or newline separated keywords
     """
     try:
+        db_pool = get_db_pool()
+        
         # Parse keywords
         keywords_text = input_data.keywords_text
         category = input_data.category or "general"
@@ -67,7 +67,7 @@ async def add_manual_keywords(
             else:
                 return 15000
         
-        # Smart design allocation based on volume
+        # Smart design allocation
         def calculate_designs(volume: int) -> int:
             if volume >= 150000:
                 return 250
@@ -92,76 +92,60 @@ async def add_manual_keywords(
             keyword_lower = keyword.lower()
             
             # Check if exists
-            existing = db.query(Keyword).filter(
-                Keyword.keyword == keyword_lower
-            ).first()
+            existing = await db_pool.fetchrow(
+                "SELECT * FROM keywords WHERE keyword = $1",
+                keyword_lower
+            )
             
             if existing:
                 logger.info(f"⏭️  Already exists: {keyword_lower}")
-                stored_keywords.append(existing)
-                total_designs += existing.designs_allocated
+                stored_keywords.append(dict(existing))
+                total_designs += existing['designs_allocated']
                 continue
             
             # Create new
             estimated_volume = estimate_volume(keyword_lower)
             designs = calculate_designs(estimated_volume)
             
-            new_keyword = Keyword(
-                keyword=keyword_lower,
-                search_volume=estimated_volume,
-                category=category,
-                designs_allocated=designs,
-                trend_score=7.0
+            new_keyword = await db_pool.fetchrow(
+                """
+                INSERT INTO keywords (keyword, search_volume, category, designs_allocated, trend_score, created_at)
+                VALUES ($1, $2, $3, $4, $5, NOW())
+                RETURNING *
+                """,
+                keyword_lower,
+                estimated_volume,
+                category,
+                designs,
+                7.0
             )
-            db.add(new_keyword)
-            stored_keywords.append(new_keyword)
+            
+            stored_keywords.append(dict(new_keyword))
             total_designs += designs
-        
-        db.commit()
-        
-        for kw in stored_keywords:
-            db.refresh(kw)
         
         return {
             "success": True,
             "message": f"Added {len(stored_keywords)} keywords",
             "keywords_stored": len(stored_keywords),
             "potential_listings": total_designs * 8,
-            "keywords": [
-                {
-                    "id": kw.id,
-                    "keyword": kw.keyword,
-                    "search_volume": kw.search_volume,
-                    "category": kw.category,
-                    "designs_allocated": kw.designs_allocated,
-                    "trend_score": kw.trend_score,
-                    "created_at": kw.created_at
-                }
-                for kw in stored_keywords
-            ]
+            "keywords": stored_keywords
         }
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"❌ Error adding manual keywords: {e}")
-        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ========================================
-# NEW ENDPOINT 2: BATCH IMPORT
+# ENDPOINT 2: BATCH IMPORT
 # ========================================
 @router.post("/batch-import")
-async def batch_import_keywords(
-    batch: BatchKeywordImport,
-    db: Session = Depends(get_db)
-):
-    """
-    Import multiple keywords at once
-    Used by external scripts or bulk operations
-    """
+async def batch_import_keywords(batch: BatchKeywordImport):
+    """Import multiple keywords at once"""
     try:
+        db_pool = get_db_pool()
         logger.info(f"📦 Batch import: {len(batch.keywords)} keywords")
         
         stored_keywords = []
@@ -188,92 +172,133 @@ async def batch_import_keywords(
             keyword_lower = kw_data.keyword.lower()
             
             # Check if exists
-            existing = db.query(Keyword).filter(
-                Keyword.keyword == keyword_lower
-            ).first()
+            existing = await db_pool.fetchrow(
+                "SELECT * FROM keywords WHERE keyword = $1",
+                keyword_lower
+            )
             
             if existing:
-                stored_keywords.append(existing)
-                total_designs += existing.designs_allocated
+                stored_keywords.append(dict(existing))
+                total_designs += existing['designs_allocated']
                 continue
             
-            # Calculate designs if not provided
+            # Calculate designs
             designs = kw_data.designs_allocated
             if designs is None:
                 volume = kw_data.search_volume or 20000
                 designs = calculate_designs(volume)
             
             # Create keyword
-            new_keyword = Keyword(
-                keyword=keyword_lower,
-                search_volume=kw_data.search_volume or 20000,
-                category=kw_data.category or "general",
-                designs_allocated=designs,
-                trend_score=kw_data.trend_score or 5.0
+            new_keyword = await db_pool.fetchrow(
+                """
+                INSERT INTO keywords (keyword, search_volume, category, designs_allocated, trend_score, created_at)
+                VALUES ($1, $2, $3, $4, $5, NOW())
+                RETURNING *
+                """,
+                keyword_lower,
+                kw_data.search_volume or 20000,
+                kw_data.category or "general",
+                designs,
+                kw_data.trend_score or 5.0
             )
-            db.add(new_keyword)
-            stored_keywords.append(new_keyword)
+            
+            stored_keywords.append(dict(new_keyword))
             total_designs += designs
-        
-        db.commit()
-        
-        for kw in stored_keywords:
-            db.refresh(kw)
         
         return {
             "success": True,
             "message": f"Imported {len(stored_keywords)} keywords",
             "keywords_stored": len(stored_keywords),
             "potential_listings": total_designs * 8,
-            "keywords": [
-                {
-                    "id": kw.id,
-                    "keyword": kw.keyword,
-                    "search_volume": kw.search_volume,
-                    "category": kw.category,
-                    "designs_allocated": kw.designs_allocated
-                }
-                for kw in stored_keywords
-            ]
+            "keywords": stored_keywords
         }
         
     except Exception as e:
         logger.error(f"❌ Batch import error: {e}")
-        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ========================================
-# NEW ENDPOINT 3: GET TRENDS WITH STATS
+# ENDPOINT 3: GET STATISTICS
 # ========================================
 @router.get("/stats")
-async def get_trend_stats(db: Session = Depends(get_db)):
+async def get_trend_stats():
     """Get statistics about stored keywords"""
     try:
-        total = db.query(Keyword).count()
+        db_pool = get_db_pool()
+        
+        # Total keywords
+        total = await db_pool.fetchval("SELECT COUNT(*) FROM keywords")
         
         # Category breakdown
-        from sqlalchemy import func
-        categories = db.query(
-            Keyword.category,
-            func.count(Keyword.id).label("count"),
-            func.sum(Keyword.designs_allocated).label("designs")
-        ).group_by(Keyword.category).all()
+        categories = await db_pool.fetch(
+            """
+            SELECT 
+                category,
+                COUNT(*) as count,
+                SUM(designs_allocated) as designs
+            FROM keywords
+            GROUP BY category
+            ORDER BY count DESC
+            """
+        )
         
-        total_designs = db.query(func.sum(Keyword.designs_allocated)).scalar() or 0
+        # Total designs
+        total_designs = await db_pool.fetchval(
+            "SELECT SUM(designs_allocated) FROM keywords"
+        ) or 0
         
         return {
-            "total_keywords": total,
+            "total_keywords": total or 0,
             "total_potential_listings": total_designs * 8,
             "categories": [
                 {
-                    "category": cat,
-                    "count": count,
-                    "designs": designs or 0
+                    "category": cat['category'],
+                    "count": cat['count'],
+                    "designs": cat['designs'] or 0
                 }
-                for cat, count, designs in categories
+                for cat in categories
             ]
         }
     except Exception as e:
         logger.error(f"❌ Error fetching stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========================================
+# ENDPOINT 4: GET ALL KEYWORDS
+# ========================================
+@router.get("/")
+async def get_trends(
+    category: Optional[str] = None,
+    limit: int = Query(default=100, ge=1, le=500)
+):
+    """Get stored keywords with optional category filter"""
+    try:
+        db_pool = get_db_pool()
+        
+        if category:
+            keywords = await db_pool.fetch(
+                """
+                SELECT * FROM keywords
+                WHERE category = $1
+                ORDER BY search_volume DESC
+                LIMIT $2
+                """,
+                category, limit
+            )
+        else:
+            keywords = await db_pool.fetch(
+                """
+                SELECT * FROM keywords
+                ORDER BY search_volume DESC
+                LIMIT $1
+                """,
+                limit
+            )
+        
+        return [dict(kw) for kw in keywords]
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching keywords: {e}")
         raise HTTPException(status_code=500, detail=str(e))
