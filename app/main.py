@@ -1,57 +1,109 @@
-# app/database.py
-"""
-Database connection pool management
-"""
-import asyncpg
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from loguru import logger
-from typing import Optional
+import sys
+
 from app.config import settings
+from app.database import db_pool
+from app.utils.cache import redis_client
+
+# Import routers
+from app.api.v1 import (
+    test, products, orders, trends, platforms, artwork,
+    analytics, analytics_detailed, generation, approval,
+    product_feedback, keyword_research
+)
+
+# Configure logging
+logger.remove()
+logger.add(
+    sys.stdout,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
+    level="INFO"
+)
 
 
-class DatabasePool:
-    """Manages PostgreSQL connection pool"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown events"""
+    logger.info("🚀 Starting AI POD Platform...")
     
-    def __init__(self):
-        self.pool: Optional[asyncpg.Pool] = None
+    # Initialize database pool
+    try:
+        await db_pool.initialize()
+        logger.info("✅ Database pool initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize database: {e}")
+        raise
     
-    async def initialize(self):
-        """Initialize database connection pool"""
-        try:
-            if not settings.DATABASE_URL:
-                raise ValueError("DATABASE_URL is not set in environment variables")
-            
-            self.pool = await asyncpg.create_pool(
-                dsn=settings.DATABASE_URL,
-                min_size=2,
-                max_size=10,
-                command_timeout=60,
-                timeout=30
-            )
-            logger.info("Database pool initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize database pool: {e}")
-            raise
+    # Initialize Redis (optional)
+    try:
+        await redis_client.initialize()
+        if redis_client.is_connected:
+            logger.info("✅ Redis connected")
+        else:
+            logger.warning("⚠️ Redis not available (caching disabled)")
+    except Exception as e:
+        logger.warning(f"⚠️ Redis initialization failed: {e}")
     
-    async def close(self):
-        """Close database connection pool"""
-        if self.pool:
-            await self.pool.close()
-            logger.info("Database pool closed")
+    logger.info("✅ Application started successfully!")
     
-    def get_pool(self) -> asyncpg.Pool:
-        """Get the connection pool"""
-        if not self.pool:
-            raise RuntimeError("Database pool not initialized. Call initialize() first.")
-        return self.pool
+    yield
+    
+    # Shutdown
+    logger.info("🛑 Shutting down...")
+    await db_pool.close()
+    await redis_client.close()
+    logger.info("✅ Shutdown complete")
 
 
-# Global database pool instance
-db_pool = DatabasePool()
+# Create FastAPI app
+app = FastAPI(
+    title="AI POD Platform API",
+    description="AI-Powered Print-on-Demand Platform",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Helper function to get database connection
-async def get_db():
-    """Dependency to get database connection"""
-    pool = db_pool.get_pool()
-    async with pool.acquire() as connection:
-        yield connection
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "database": db_pool.pool is not None,
+        "redis": redis_client.is_connected
+    }
+
+@app.get("/")
+async def root():
+    return {
+        "message": "AI POD Platform API",
+        "version": "1.0.0",
+        "docs": "/docs"
+    }
+
+# Include routers
+app.include_router(test.router, prefix=f"{settings.API_V1_PREFIX}/test", tags=["Test"])
+app.include_router(products.router, prefix=f"{settings.API_V1_PREFIX}/products", tags=["Products"])
+app.include_router(orders.router, prefix=f"{settings.API_V1_PREFIX}/orders", tags=["Orders"])
+app.include_router(trends.router, prefix=f"{settings.API_V1_PREFIX}/trends", tags=["Trends"])
+app.include_router(platforms.router, prefix=f"{settings.API_V1_PREFIX}/platforms", tags=["Platforms"])
+app.include_router(artwork.router, prefix=f"{settings.API_V1_PREFIX}/artwork", tags=["Artwork"])
+app.include_router(analytics.router, prefix=f"{settings.API_V1_PREFIX}/analytics", tags=["Analytics"])
+app.include_router(analytics_detailed.router, prefix=f"{settings.API_V1_PREFIX}/analytics-detailed", tags=["Analytics"])
+app.include_router(generation.router, prefix=f"{settings.API_V1_PREFIX}/generation", tags=["Generation"])
+app.include_router(approval.router, prefix=f"{settings.API_V1_PREFIX}/approval", tags=["Approval"])
+app.include_router(product_feedback.router, prefix=f"{settings.API_V1_PREFIX}/product-feedback", tags=["Feedback"])
+app.include_router(keyword_research.router, prefix=f"{settings.API_V1_PREFIX}/keyword-research", tags=["Keywords"])
+
+logger.info("✅ All routes registered")
