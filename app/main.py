@@ -23,6 +23,25 @@ logger.add(
     level="INFO"
 )
 
+async def run_migrations():
+    """Run pending database migrations"""
+    db_pool = await get_db_pool()
+    
+    # Read and execute the migration
+    with open('scripts/add_feedback_table.sql', 'r') as f:
+        migration_sql = f.read()
+    
+    try:
+        await db_pool.execute(migration_sql)
+        logger.info("✅ Database migrations completed")
+    except Exception as e:
+        logger.error(f"Migration error: {e}")
+
+# In your startup event:
+@app.on_event("startup")
+async def startup_event():
+    await run_migrations()
+    # ... rest of your startup code
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -74,6 +93,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
 
 # Health check endpoint
 @app.get("/health")
