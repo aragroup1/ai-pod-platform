@@ -1,16 +1,11 @@
-# ========================================
-# CORRECTED ENDPOINTS FOR YOUR PROJECT
-# Add these to: app/api/v1/trends.py
-# ========================================
-# Your project uses direct database queries (asyncpg), NOT SQLAlchemy models
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 import logging
+
 from app.core.trends.service import TrendService
-from app.database import get_db_pool
+from app.dependencies import get_db_pool
 
 logger = logging.getLogger(__name__)
 
@@ -31,19 +26,11 @@ class KeywordCreate(BaseModel):
 class BatchKeywordImport(BaseModel):
     keywords: List[KeywordCreate]
 
-# ========================================
-# ENDPOINT 1: MANUAL KEYWORD INPUT
-# ========================================
+
 @router.post("/manual-add")
-async def add_manual_keywords(input_data: ManualKeywordInput):
-    """
-    Add keywords manually from dashboard
-    Accepts comma or newline separated keywords
-    """
+async def add_manual_keywords(input_data: ManualKeywordInput, db_pool = Depends(get_db_pool)):
+    """Add keywords manually from dashboard"""
     try:
-        db_pool = get_db_pool()
-        
-        # Parse keywords
         keywords_text = input_data.keywords_text
         category = input_data.category or "general"
         
@@ -57,7 +44,6 @@ async def add_manual_keywords(input_data: ManualKeywordInput):
         
         logger.info(f"📝 Manual add: {len(keyword_list)} keywords")
         
-        # Smart volume estimation
         def estimate_volume(keyword: str) -> int:
             word_count = len(keyword.split())
             if word_count <= 2:
@@ -67,7 +53,6 @@ async def add_manual_keywords(input_data: ManualKeywordInput):
             else:
                 return 15000
         
-        # Smart design allocation
         def calculate_designs(volume: int) -> int:
             if volume >= 150000:
                 return 250
@@ -84,39 +69,35 @@ async def add_manual_keywords(input_data: ManualKeywordInput):
             else:
                 return 30
         
-        # Store keywords
         stored_keywords = []
         total_designs = 0
         
         for keyword in keyword_list:
             keyword_lower = keyword.lower()
             
-            # Check if exists
             existing = await db_pool.fetchrow(
-                "SELECT * FROM keywords WHERE keyword = $1",
+                "SELECT * FROM trends WHERE keyword = $1",
                 keyword_lower
             )
             
             if existing:
                 logger.info(f"⏭️  Already exists: {keyword_lower}")
                 stored_keywords.append(dict(existing))
-                total_designs += existing['designs_allocated']
+                total_designs += existing['designs_allocated'] if existing.get('designs_allocated') else 0
                 continue
             
-            # Create new
             estimated_volume = estimate_volume(keyword_lower)
             designs = calculate_designs(estimated_volume)
             
             new_keyword = await db_pool.fetchrow(
                 """
-                INSERT INTO keywords (keyword, search_volume, category, designs_allocated, trend_score, created_at)
-                VALUES ($1, $2, $3, $4, $5, NOW())
+                INSERT INTO trends (keyword, search_volume, category, trend_score, created_at)
+                VALUES ($1, $2, $3, $4, NOW())
                 RETURNING *
                 """,
                 keyword_lower,
                 estimated_volume,
                 category,
-                designs,
                 7.0
             )
             
@@ -138,20 +119,15 @@ async def add_manual_keywords(input_data: ManualKeywordInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ========================================
-# ENDPOINT 2: BATCH IMPORT
-# ========================================
 @router.post("/batch-import")
-async def batch_import_keywords(batch: BatchKeywordImport):
+async def batch_import_keywords(batch: BatchKeywordImport, db_pool = Depends(get_db_pool)):
     """Import multiple keywords at once"""
     try:
-        db_pool = get_db_pool()
         logger.info(f"📦 Batch import: {len(batch.keywords)} keywords")
         
         stored_keywords = []
         total_designs = 0
         
-        # Smart design allocation
         def calculate_designs(volume: int) -> int:
             if volume >= 150000:
                 return 250
@@ -171,34 +147,30 @@ async def batch_import_keywords(batch: BatchKeywordImport):
         for kw_data in batch.keywords:
             keyword_lower = kw_data.keyword.lower()
             
-            # Check if exists
             existing = await db_pool.fetchrow(
-                "SELECT * FROM keywords WHERE keyword = $1",
+                "SELECT * FROM trends WHERE keyword = $1",
                 keyword_lower
             )
             
             if existing:
                 stored_keywords.append(dict(existing))
-                total_designs += existing['designs_allocated']
+                total_designs += existing['designs_allocated'] if existing.get('designs_allocated') else 0
                 continue
             
-            # Calculate designs
             designs = kw_data.designs_allocated
             if designs is None:
                 volume = kw_data.search_volume or 20000
                 designs = calculate_designs(volume)
             
-            # Create keyword
             new_keyword = await db_pool.fetchrow(
                 """
-                INSERT INTO keywords (keyword, search_volume, category, designs_allocated, trend_score, created_at)
-                VALUES ($1, $2, $3, $4, $5, NOW())
+                INSERT INTO trends (keyword, search_volume, category, trend_score, created_at)
+                VALUES ($1, $2, $3, $4, NOW())
                 RETURNING *
                 """,
                 keyword_lower,
                 kw_data.search_volume or 20000,
                 kw_data.category or "general",
-                designs,
                 kw_data.trend_score or 5.0
             )
             
@@ -218,44 +190,29 @@ async def batch_import_keywords(batch: BatchKeywordImport):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ========================================
-# ENDPOINT 3: GET STATISTICS
-# ========================================
 @router.get("/stats")
-async def get_trend_stats():
+async def get_trend_stats(db_pool = Depends(get_db_pool)):
     """Get statistics about stored keywords"""
     try:
-        db_pool = get_db_pool()
+        total = await db_pool.fetchval("SELECT COUNT(*) FROM trends")
         
-        # Total keywords
-        total = await db_pool.fetchval("SELECT COUNT(*) FROM keywords")
-        
-        # Category breakdown
         categories = await db_pool.fetch(
             """
             SELECT 
                 category,
-                COUNT(*) as count,
-                SUM(designs_allocated) as designs
-            FROM keywords
+                COUNT(*) as count
+            FROM trends
             GROUP BY category
             ORDER BY count DESC
             """
         )
         
-        # Total designs
-        total_designs = await db_pool.fetchval(
-            "SELECT SUM(designs_allocated) FROM keywords"
-        ) or 0
-        
         return {
             "total_keywords": total or 0,
-            "total_potential_listings": total_designs * 8,
             "categories": [
                 {
                     "category": cat['category'],
-                    "count": cat['count'],
-                    "designs": cat['designs'] or 0
+                    "count": cat['count']
                 }
                 for cat in categories
             ]
@@ -265,22 +222,18 @@ async def get_trend_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ========================================
-# ENDPOINT 4: GET ALL KEYWORDS
-# ========================================
 @router.get("/")
 async def get_trends(
     category: Optional[str] = None,
-    limit: int = Query(default=100, ge=1, le=500)
+    limit: int = Query(default=100, ge=1, le=500),
+    db_pool = Depends(get_db_pool)
 ):
     """Get stored keywords with optional category filter"""
     try:
-        db_pool = get_db_pool()
-        
         if category:
             keywords = await db_pool.fetch(
                 """
-                SELECT * FROM keywords
+                SELECT * FROM trends
                 WHERE category = $1
                 ORDER BY search_volume DESC
                 LIMIT $2
@@ -290,7 +243,7 @@ async def get_trends(
         else:
             keywords = await db_pool.fetch(
                 """
-                SELECT * FROM keywords
+                SELECT * FROM trends
                 ORDER BY search_volume DESC
                 LIMIT $1
                 """,
@@ -303,124 +256,14 @@ async def get_trends(
         logger.error(f"❌ Error fetching keywords: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Add these to app/api/v1/trends.py
 
 @router.post("/fetch")
 async def fetch_and_store_trends(
     region: str = Query("GB", description="Region code"),
     limit: int = Query(20, ge=1, le=50),
-    db_pool: DatabasePool = Depends(get_db_pool)
+    db_pool = Depends(get_db_pool)
 ):
-    """
-    Fetch trending keywords from Google Trends
-    """
-    try:
-        from app.core.trends.service import TrendService
-        
-        service = TrendService(db_pool)
-        trends = await service.fetch_and_store_trends(
-            region=region,
-            min_score=6.0,
-            limit=limit
-        )
-        
-        return {
-            "success": True,
-            "message": f"Fetched {len(trends)} trends",
-            "trends_stored": len(trends),
-            "trends": trends
-        }
-        
-    except Exception as e:
-        logger.error(f"Error fetching trends: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/fetch-10k-initial")
-async def fetch_10k_initial(db_pool: DatabasePool = Depends(get_db_pool)):
-    """
-    Launch 10K initial keyword strategy
-    """
-    try:
-        from app.core.trends.service import TrendService
-        
-        service = TrendService(db_pool)
-        result = await service.fetch_initial_10k_keywords()
-        
-        return {
-            "success": True,
-            **result
-        }
-        
-    except Exception as e:
-        logger.error(f"Error launching 10K strategy: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/analytics")
-async def get_trend_analytics(db_pool: DatabasePool = Depends(get_db_pool)):
-    """
-    Get trend analytics for dashboard
-    """
-    try:
-        # Total trends
-        total = await db_pool.fetchval("SELECT COUNT(*) FROM trends")
-        
-        # Categories
-        categories = await db_pool.fetch(
-            """
-            SELECT 
-                category,
-                COUNT(*) as count,
-                AVG(trend_score) as avg_score
-            FROM trends
-            GROUP BY category
-            ORDER BY count DESC
-            LIMIT 10
-            """
-        )
-        
-        # Goal progress (to 10K designs)
-        products_count = await db_pool.fetchval(
-            "SELECT COUNT(*) FROM products WHERE status = 'active'"
-        ) or 0
-        
-        target = 10000
-        progress = (products_count / target) * 100 if target > 0 else 0
-        
-        return {
-            "total_trends": total,
-            "total_categories": len(categories),
-            "avg_trend_score": sum(c['avg_score'] for c in categories) / len(categories) if categories else 0,
-            "goal_progress": {
-                "target_designs": target,
-                "current_designs": products_count,
-                "designs_needed": max(0, target - products_count),
-                "progress_percentage": round(progress, 1)
-            },
-            "top_categories": [
-                {
-                    "name": c['category'],
-                    "count": c['count'],
-                    "avg_score": round(float(c['avg_score']), 2)
-                }
-                for c in categories
-            ]
-        }
-        
-    except Exception as e:
-        logger.error(f"Error fetching analytics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/fetch")
-async def fetch_and_store_trends(
-    region: str = Query("GB", description="Region code"),
-    limit: int = Query(20, ge=1, le=50),
-    db_pool: DatabasePool = Depends(get_db_pool)
-):
-    """
-    Fetch trending keywords from Google Trends
-    """
+    """Fetch trending keywords from Google Trends"""
     try:
         service = TrendService(db_pool)
         trends = await service.fetch_and_store_trends(
@@ -442,10 +285,8 @@ async def fetch_and_store_trends(
 
 
 @router.post("/fetch-10k-initial")
-async def fetch_10k_initial(db_pool: DatabasePool = Depends(get_db_pool)):
-    """
-    🚀 Launch 10K initial keyword strategy
-    """
+async def fetch_10k_initial(db_pool = Depends(get_db_pool)):
+    """Launch 10K initial keyword strategy"""
     try:
         service = TrendService(db_pool)
         result = await service.fetch_initial_10k_keywords()
@@ -458,15 +299,11 @@ async def fetch_10k_initial(db_pool: DatabasePool = Depends(get_db_pool)):
 
 
 @router.get("/analytics")
-async def get_trend_analytics(db_pool: DatabasePool = Depends(get_db_pool)):
-    """
-    Get trend analytics for dashboard
-    """
+async def get_trend_analytics(db_pool = Depends(get_db_pool)):
+    """Get trend analytics for dashboard"""
     try:
-        # Total trends
         total = await db_pool.fetchval("SELECT COUNT(*) FROM trends")
         
-        # Categories
         categories = await db_pool.fetch(
             """
             SELECT 
@@ -480,7 +317,6 @@ async def get_trend_analytics(db_pool: DatabasePool = Depends(get_db_pool)):
             """
         )
         
-        # Goal progress
         products_count = await db_pool.fetchval(
             "SELECT COUNT(*) FROM products WHERE status = 'active'"
         ) or 0
