@@ -2,6 +2,7 @@
 """
 Product Feedback API - Learn from User Preferences
 Stores approvals/rejections and learns from patterns
+✅ NOW WITH AWS S3 DELETION ON REJECT
 """
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -11,6 +12,7 @@ from datetime import datetime
 
 from app.database import DatabasePool
 from app.dependencies import get_db_pool
+from app.utils.s3_storage import get_storage_manager
 
 router = APIRouter()
 
@@ -34,12 +36,14 @@ async def record_feedback(
     """
     Record user feedback on a product
     This helps the AI learn what you like/dislike
+    
+    ✅ FIXED: Now deletes from AWS S3 when rejecting
     """
     try:
-        # Get product details
+        # Get product details INCLUDING S3 key
         product = await db_pool.fetchrow(
             """
-            SELECT p.*, a.style, a.metadata, a.provider
+            SELECT p.*, a.image_url as s3_key, a.style, a.metadata, a.provider
             FROM products p
             LEFT JOIN artwork a ON p.artwork_id = a.id
             WHERE p.id = $1
@@ -68,6 +72,22 @@ async def record_feedback(
         
         # Update product status
         new_status = 'approved' if request.action == 'approve' else 'rejected'
+        
+        # ✅ NEW: Delete from S3 if rejecting
+        if request.action == 'reject' and product.get('s3_key'):
+            try:
+                storage = get_storage_manager()
+                deleted = storage.delete_image(product['s3_key'])
+                
+                if deleted:
+                    logger.info(f"✅ Deleted S3 image: {product['s3_key']}")
+                else:
+                    logger.warning(f"⚠️ Failed to delete S3 image: {product['s3_key']}")
+                    
+            except Exception as s3_error:
+                logger.error(f"❌ S3 deletion error: {s3_error}")
+                # Don't fail the rejection if S3 delete fails
+        
         await db_pool.execute(
             """
             UPDATE products 
@@ -79,19 +99,22 @@ async def record_feedback(
             request.product_id
         )
         
-        logger.info(f"Feedback recorded: Product {request.product_id} {request.action}ed")
+        action_msg = "approved for Shopify" if request.action == 'approve' else "rejected and deleted from S3"
+        logger.info(f"Product {request.product_id} {action_msg}")
         
         return {
             "success": True,
             "product_id": request.product_id,
             "action": request.action,
-            "status": new_status
+            "status": new_status,
+            "s3_deleted": request.action == 'reject' and product.get('s3_key') is not None
         }
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error recording feedback: {e}")
+        logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -100,9 +123,39 @@ async def bulk_feedback(
     request: BulkFeedbackRequest,
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
-    """Approve/reject multiple products at once"""
+    """
+    Approve/reject multiple products at once
+    ✅ FIXED: Now deletes from AWS S3 when bulk rejecting
+    """
     try:
         new_status = 'approved' if request.action == 'approve' else 'rejected'
+        
+        # Get all products with S3 keys if rejecting
+        if request.action == 'reject':
+            products = await db_pool.fetch(
+                """
+                SELECT p.id, a.image_url as s3_key, a.style, a.provider
+                FROM products p
+                LEFT JOIN artwork a ON p.artwork_id = a.id
+                WHERE p.id = ANY($1)
+                """,
+                request.product_ids
+            )
+            
+            # Delete from S3
+            storage = get_storage_manager()
+            deleted_count = 0
+            
+            for product in products:
+                if product['s3_key']:
+                    try:
+                        if storage.delete_image(product['s3_key']):
+                            deleted_count += 1
+                            logger.info(f"✅ Deleted S3 image for product {product['id']}")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to delete S3 for product {product['id']}: {e}")
+            
+            logger.info(f"Deleted {deleted_count}/{len(products)} images from S3")
         
         # Update all products
         await db_pool.execute(
@@ -141,16 +194,22 @@ async def bulk_feedback(
                     product['provider']
                 )
         
-        logger.info(f"Bulk feedback: {len(request.product_ids)} products {request.action}ed")
+        action_msg = f"{request.action}ed"
+        if request.action == 'reject':
+            action_msg += " and deleted from S3"
+            
+        logger.info(f"Bulk feedback: {len(request.product_ids)} products {action_msg}")
         
         return {
             "success": True,
             "count": len(request.product_ids),
-            "action": request.action
+            "action": request.action,
+            "s3_deleted": request.action == 'reject'
         }
         
     except Exception as e:
         logger.error(f"Error in bulk feedback: {e}")
+        logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -163,7 +222,7 @@ async def get_rejected_products(
     try:
         products = await db_pool.fetch(
             """
-            SELECT p.id, p.title, p.sku, a.style, a.image_url
+            SELECT p.id, p.title, p.sku, a.style, a.image_url as s3_key
             FROM products p
             LEFT JOIN artwork a ON p.artwork_id = a.id
             WHERE p.status = 'rejected'
@@ -180,7 +239,8 @@ async def get_rejected_products(
                     "title": p["title"],
                     "sku": p["sku"],
                     "style": p["style"],
-                    "image_url": p["image_url"]
+                    "s3_key": p["s3_key"],
+                    "note": "S3 image has been deleted"
                 }
                 for p in products
             ],
