@@ -136,7 +136,7 @@ async def get_products(
     status: Optional[str] = None,
     category: Optional[str] = None,
     search: Optional[str] = None,
-    include_images: bool = Query(default=False, description="Include pre-signed image URLs"),
+    include_images: bool = Query(default=True, description="Include pre-signed image URLs"),
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
     """
