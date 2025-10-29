@@ -25,8 +25,6 @@ logger.add(
 
 async def run_migrations():
     """Run pending database migrations"""
-    db_pool = await get_db_pool()
-    
     # Read and execute the migration
     with open('scripts/add_feedback_table.sql', 'r') as f:
         migration_sql = f.read()
@@ -35,13 +33,8 @@ async def run_migrations():
         await db_pool.execute(migration_sql)
         logger.info("✅ Database migrations completed")
     except Exception as e:
-        logger.error(f"Migration error: {e}")
-
-# In your startup event:
-@app.on_event("startup")
-async def startup_event():
-    await run_migrations()
-    # ... rest of your startup code
+        logger.error(f"❌ Migration error: {e}")
+        # Don't raise - allow app to continue even if migration fails
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -55,6 +48,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Failed to initialize database: {e}")
         raise
+    
+    # Run database migrations
+    try:
+        await run_migrations()
+    except Exception as e:
+        logger.error(f"❌ Failed to run migrations: {e}")
+        # Continue anyway - table might already exist
     
     # Initialize Redis (optional)
     try:
