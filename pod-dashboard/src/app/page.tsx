@@ -101,7 +101,7 @@ export default function DashboardPage() {
 
       const [statsResponse, productsResponse, genStatusResponse, analyticsResponse] = await Promise.all([
         fetch(`${API_URL}/api/v1/analytics/dashboard`).catch(() => null),
-        fetch(`${API_URL}/api/v1/products/?limit=100&status=active`).catch(() => null), // Only fetch active products
+        fetch(`${API_URL}/api/v1/products/?limit=100&status=active&include_images=true`),
         fetch(`${API_URL}/api/v1/generation/status`).catch(() => null),
         fetch(`${API_URL}/api/v1/trends/analytics`).catch(() => null)
       ]);
