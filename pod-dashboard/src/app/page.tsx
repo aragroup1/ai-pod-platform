@@ -116,14 +116,14 @@ export default function DashboardPage() {
         });
       }
       
-     if (productsResponse?.ok) {
-  const productsData = await productsResponse.json();
-  // Filter out rejected products so they don't reappear in gallery
-  const activeProducts = (productsData.products || []).filter(
-    (p: Product) => p.status !== 'rejected'
-  );
-  setRecentProducts(activeProducts);
-}
+      if (productsResponse?.ok) {
+        const productsData = await productsResponse.json();
+        // Filter out rejected products so they don't reappear in gallery
+        const activeProducts = (productsData.products || []).filter(
+          (p: Product) => p.status !== 'rejected'
+        );
+        setRecentProducts(activeProducts);
+      }
       
       if (genStatusResponse?.ok) {
         setGenStatus(await genStatusResponse.json());
@@ -141,7 +141,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ FIXED: Approve product with API call
+  // ✅ FIXED: Approve product - no automatic refetch
   const approveProduct = async (productId: number) => {
     try {
       const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
@@ -159,15 +159,15 @@ export default function DashboardPage() {
         icon: <Check className="h-4 w-4" />
       });
       
-      // Remove from gallery
+      // Remove from gallery immediately
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
-      fetchData(); // Refresh stats
+      
     } catch (err: any) {
       toast.error(`Approval failed: ${err.message}`);
     }
   };
 
-  // ✅ FIXED: Reject product with API call (persistent)
+  // ✅ FIXED: Reject product - no automatic refetch to avoid race condition
   const rejectProduct = async (productId: number) => {
     try {
       const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
@@ -184,9 +184,10 @@ export default function DashboardPage() {
       // Remove from UI immediately
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
       
-      toast.success(`Product rejected (won't reappear)`, {
+      toast.success(`Product rejected and deleted from S3`, {
         icon: <ThumbsDown className="h-4 w-4" />
       });
+      
     } catch (err: any) {
       toast.error(`Rejection failed: ${err.message}`);
     }
@@ -356,7 +357,6 @@ export default function DashboardPage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center p-4 md:p-8 bg-muted/40">
-      {/* ✅ FIXED: Move toaster to bottom-left to avoid covering buttons */}
       <Toaster richColors position="bottom-left" />
       
       <div className="w-full max-w-7xl space-y-6">
@@ -436,7 +436,7 @@ export default function DashboardPage() {
           </Card>
         )}
 
-        {/* 10K Launch Card - Only show if under 1000 products */}
+        {/* 10K Launch Card */}
         {(genStatus?.total_products || 0) < 1000 && !showGallery && (
           <Card className="border-purple-500 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950">
             <CardHeader>
