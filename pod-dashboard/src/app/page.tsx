@@ -116,10 +116,14 @@ export default function DashboardPage() {
         });
       }
       
-      if (productsResponse?.ok) {
-        const productsData = await productsResponse.json();
-        setRecentProducts(productsData.products || []);
-      }
+     if (productsResponse?.ok) {
+  const productsData = await productsResponse.json();
+  // Filter out rejected products so they don't reappear in gallery
+  const activeProducts = (productsData.products || []).filter(
+    (p: Product) => p.status !== 'rejected'
+  );
+  setRecentProducts(activeProducts);
+}
       
       if (genStatusResponse?.ok) {
         setGenStatus(await genStatusResponse.json());
