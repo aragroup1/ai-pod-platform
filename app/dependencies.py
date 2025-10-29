@@ -1,52 +1,17 @@
-# app/dependencies.py
-"""
-Dependency injection for FastAPI routes
-Matches your existing repo structure
-"""
 from fastapi import Request, HTTPException, status
-from typing import Optional
 from typing import AsyncGenerator
 import asyncpg
-from app.database import get_db_pool
 
-async def get_db() -> AsyncGenerator[asyncpg.Connection, None]:
-    """
-    Get a database connection from the pool.
-    Automatically returns connection to pool after use.
-    """
-    pool = await get_db_pool()
-    async with pool.acquire() as connection:
-        yield connection
-        
 async def get_db_pool(request: Request):
     """
-    Dependency to get the database pool from app state.
-    Raises 503 error if database is not connected.
-    
-    Usage in routes:
-        @router.get("/")
-        async def endpoint(db_pool: DatabasePool = Depends(get_db_pool)):
-            ...
+    Get database pool from app state
     """
-    if not hasattr(request.app.state, 'db_pool'):
+    from app.database import db_pool
+    
+    if not db_pool.pool:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database pool not initialized",
+            detail="Database not connected"
         )
     
-    if not request.app.state.db_pool.is_connected:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database connection is not available",
-        )
-    
-    return request.app.state.db_pool
-
-
-# Optional: Admin user authentication (placeholder for future implementation)
-async def get_current_admin_user():
-    """
-    Placeholder for admin user authentication.
-    Implement proper auth when needed.
-    """
-    return {"username": "admin", "roles": ["admin"]}
+    return db_pool.pool
