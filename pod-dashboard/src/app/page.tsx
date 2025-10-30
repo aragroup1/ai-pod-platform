@@ -1,4 +1,4 @@
-// pod-dashboard/src/app/page.tsx - FIXED VERSION
+// pod-dashboard/src/app/page.tsx
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -78,9 +78,6 @@ export default function DashboardPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
   
-  // ✅ NEW: Track products being hidden to prevent flicker
-  const [hiddenProducts, setHiddenProducts] = useState<Set<number>>(new Set());
-  
   // Generation settings
   const [budgetMode, setBudgetMode] = useState<'cheap' | 'balanced' | 'quality'>('balanced');
   const [testingMode, setTestingMode] = useState(true);
@@ -121,9 +118,10 @@ export default function DashboardPage() {
       
       if (productsResponse?.ok) {
         const productsData = await productsResponse.json();
-        // Filter out rejected products AND products in hiddenProducts set
+        // Since we're fetching status=active, rejected products shouldn't be returned
+        // But double-filter just to be safe
         const activeProducts = (productsData.products || []).filter(
-          (p: Product) => p.status !== 'rejected' && !hiddenProducts.has(p.id)
+          (p: Product) => p.status !== 'rejected'
         );
         setRecentProducts(activeProducts);
       }
@@ -144,16 +142,12 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ FIXED: Approve product with anti-flicker mechanism
+  // ✅ FIXED: Approve product with optimistic UI update
   const approveProduct = async (productId: number) => {
     try {
-      // 1. Hide immediately
-      setHiddenProducts(prev => new Set(prev).add(productId));
-      
-      // 2. Remove from UI
+      // Optimistically remove from UI immediately
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
       
-      // 3. Call API
       const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -164,12 +158,7 @@ export default function DashboardPage() {
       });
 
       if (!response.ok) {
-        // If failed, remove from hidden set and refetch
-        setHiddenProducts(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(productId);
-          return newSet;
-        });
+        // If API call failed, refetch to restore correct state
         await fetchData();
         throw new Error('Approval failed');
       }
@@ -183,16 +172,12 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ FIXED: Reject product with anti-flicker mechanism
+  // ✅ FIXED: Reject product with optimistic UI update
   const rejectProduct = async (productId: number) => {
     try {
-      // 1. Hide immediately (prevents flicker)
-      setHiddenProducts(prev => new Set(prev).add(productId));
-      
-      // 2. Remove from UI
+      // Optimistically remove from UI immediately
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
       
-      // 3. Call API
       const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -203,12 +188,7 @@ export default function DashboardPage() {
       });
 
       if (!response.ok) {
-        // If failed, remove from hidden set and refetch
-        setHiddenProducts(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(productId);
-          return newSet;
-        });
+        // If API call failed, refetch to restore correct state
         await fetchData();
         throw new Error('Rejection failed');
       }
@@ -216,9 +196,6 @@ export default function DashboardPage() {
       toast.success(`Product rejected and deleted from S3`, {
         icon: <ThumbsDown className="h-4 w-4" />
       });
-      
-      // Keep in hiddenProducts set permanently (or at least for this session)
-      // This prevents it from reappearing even if there's a brief fetch
       
     } catch (err: any) {
       toast.error(`Rejection failed: ${err.message}`);
@@ -378,9 +355,7 @@ export default function DashboardPage() {
     );
   }
 
-  // ✅ Filter out hidden products from display
-  const visibleProducts = recentProducts.filter(p => !hiddenProducts.has(p.id));
-  const productsWithImages = visibleProducts.filter(p => p.artwork?.image_url);
+  const productsWithImages = recentProducts.filter(p => p.artwork?.image_url);
   const dailyCalc = calculateDailyGeneration();
 
   const progressData = [
@@ -421,10 +396,119 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        {/* Rest of the component remains the same... */}
-        {/* I'll include the gallery section to show the change */}
-        
-        {showGallery && (
+        {/* Settings Panel */}
+        {showSettings && (
+          <Card className="border-orange-500">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5" />
+                Daily Generation Settings
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Daily Target</label>
+                  <div className="flex gap-1">
+                    {[50, 100, 200, 500, 1000].map(num => (
+                      <Button
+                        key={num}
+                        variant={dailyGenerationTarget === num ? "default" : "outline"}
+                        onClick={() => setDailyGenerationTarget(num)}
+                        size="sm"
+                        className="text-xs"
+                      >
+                        {num}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Auto-Generation</label>
+                  <Button
+                    variant={autoGeneration ? "default" : "outline"}
+                    onClick={() => setAutoGeneration(!autoGeneration)}
+                    className="w-full"
+                  >
+                    {autoGeneration ? 'Enabled' : 'Disabled'}
+                  </Button>
+                </div>
+                
+                <div className="text-sm space-y-1">
+                  <p><strong>Daily:</strong> {dailyCalc.trendsNeeded} trends = {dailyGenerationTarget} designs</p>
+                  <p><strong>Cost:</strong> £{dailyCalc.dailyCost.toFixed(2)}/day</p>
+                  <p><strong>10K in:</strong> {dailyCalc.daysTo10K} days</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 10K Launch Card */}
+        {(genStatus?.total_products || 0) < 1000 && !showGallery && (
+          <Card className="border-purple-500 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Rocket className="h-5 w-5 text-purple-600" />
+                10K Initial Launch Strategy
+              </CardTitle>
+              <CardDescription>
+                Fast-track your inventory with 100 proven keywords across 10 categories
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <h4 className="font-semibold">What You'll Get:</h4>
+                  <ul className="text-sm space-y-1">
+                    <li>• 100 high-volume keywords</li>
+                    <li>• 10 major categories</li>
+                    <li>• ~10,000 unique designs</li>
+                    <li>• Volume-based allocation</li>
+                  </ul>
+                </div>
+                
+                <div className="space-y-2">
+                  <h4 className="font-semibold">Categories:</h4>
+                  <ul className="text-sm space-y-1">
+                    <li>• Nature & Landscapes</li>
+                    <li>• Typography & Quotes</li>
+                    <li>• Abstract & Geometric</li>
+                    <li>• Animals, Botanical, Cities...</li>
+                  </ul>
+                </div>
+                
+                <div className="space-y-2">
+                  <h4 className="font-semibold">Investment:</h4>
+                  <p className="text-sm">Testing: ~£30</p>
+                  <p className="text-sm">Production: ~£400</p>
+                  <p className="text-sm">Time: ~5 hours</p>
+                  <Button 
+                    onClick={launch10KInitial}
+                    disabled={isLaunching10K}
+                    className="w-full mt-2 bg-gradient-to-r from-purple-600 to-pink-600"
+                  >
+                    {isLaunching10K ? (
+                      <>
+                        <Rocket className="h-4 w-4 mr-2 animate-pulse" />
+                        Launching...
+                      </>
+                    ) : (
+                      <>
+                        <Rocket className="h-4 w-4 mr-2" />
+                        Launch 10K Strategy
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Gallery View */}
+        {showGallery ? (
           <Card>
             <CardHeader>
               <CardTitle>Product Gallery</CardTitle>
@@ -491,6 +575,192 @@ export default function DashboardPage() {
               )}
             </CardContent>
           </Card>
+        ) : (
+          <>
+            {/* Stats Cards */}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Products</CardTitle>
+                  <Package className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{genStatus?.total_products || '0'}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {((genStatus?.total_products || 0) / 100).toFixed(1)}% to 10K
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Keywords</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{trendAnalytics?.total_trends || '0'}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {trendAnalytics?.total_categories || 0} categories
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Ready</CardTitle>
+                  <Target className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{genStatus?.trends_awaiting_generation || '0'}</div>
+                  <p className="text-xs text-muted-foreground">
+                    keywords to generate
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Daily Rate</CardTitle>
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{dailyGenerationTarget}</div>
+                  <p className="text-xs text-muted-foreground">
+                    designs/day target
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">10K ETA</CardTitle>
+                  <Rocket className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{dailyCalc.daysTo10K}d</div>
+                  <p className="text-xs text-muted-foreground">
+                    at current rate
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Progress Chart */}
+            {trendAnalytics && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Progress to Goals</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={progressData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="designs" fill="#8884d8" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Generation Controls */}
+            <Card className="border-primary">
+              <CardHeader>
+                <CardTitle>Product Generation Controls</CardTitle>
+                <CardDescription>
+                  {genStatus?.trends_awaiting_generation || 0} keywords ready • 
+                  Daily target: {dailyGenerationTarget} designs
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Mode</label>
+                    <div className="flex gap-2">
+                      <Button
+                        variant={testingMode ? "default" : "outline"}
+                        onClick={() => setTestingMode(true)}
+                        size="sm"
+                      >
+                        Test
+                      </Button>
+                      <Button
+                        variant={!testingMode ? "default" : "outline"}
+                        onClick={() => setTestingMode(false)}
+                        size="sm"
+                      >
+                        Prod
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Batch Size</label>
+                    <div className="flex gap-1">
+                      {[5, 10, 20, 50].map(num => (
+                        <Button
+                          key={num}
+                          variant={trendsToGenerate === num ? "default" : "outline"}
+                          onClick={() => setTrendsToGenerate(num)}
+                          size="sm"
+                          className="text-xs px-2"
+                        >
+                          {num}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div className="col-span-2">
+                    <label className="text-sm font-medium mb-2 block">Quick Actions</label>
+                    <div className="flex gap-2">
+                      <Button 
+                        onClick={fetchTrends}
+                        disabled={isFetchingTrends}
+                        size="sm"
+                        variant="secondary"
+                      >
+                        <TrendingUp className={`h-4 w-4 mr-1 ${isFetchingTrends ? 'animate-pulse' : ''}`} />
+                        Fetch
+                      </Button>
+                      <Button 
+                        onClick={() => generateProducts()}
+                        disabled={isGenerating || (genStatus?.trends_awaiting_generation || 0) === 0}
+                        size="sm"
+                      >
+                        <Zap className={`h-4 w-4 mr-1 ${isGenerating ? 'animate-pulse' : ''}`} />
+                        Generate
+                      </Button>
+                      <Button 
+                        onClick={() => generateProducts(dailyCalc.trendsNeeded)}
+                        disabled={isGenerating}
+                        size="sm"
+                        variant="outline"
+                      >
+                        <Calendar className="h-4 w-4 mr-1" />
+                        Daily ({dailyCalc.trendsNeeded})
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="text-xs text-muted-foreground bg-muted p-3 rounded-lg grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="font-semibold">Current Batch:</p>
+                    <p>{trendsToGenerate} trends × 8 styles = {trendsToGenerate * 8} designs</p>
+                    <p>Cost: £{testingMode ? (trendsToGenerate * 8 * 0.003).toFixed(2) : (trendsToGenerate * 8 * 0.04).toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold">Daily Generation:</p>
+                    <p>{dailyCalc.trendsNeeded} trends = {dailyGenerationTarget} designs</p>
+                    <p>Cost: £{dailyCalc.dailyCost.toFixed(2)}/day</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
         )}
       </div>
     </main>
