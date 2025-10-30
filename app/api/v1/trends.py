@@ -5,6 +5,7 @@ from datetime import datetime
 import logging
 
 from app.core.trends.service import TrendService
+from app.database import DatabasePool
 from app.dependencies import get_db_pool
 
 logger = logging.getLogger(__name__)
