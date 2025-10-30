@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from loguru import logger
 import sys
 from app.api.v1 import admin
-app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+
 
 from app.config import settings
 from app.database import db_pool
@@ -129,5 +129,5 @@ app.include_router(generation.router, prefix=f"{settings.API_V1_PREFIX}/generati
 app.include_router(approval.router, prefix=f"{settings.API_V1_PREFIX}/approval", tags=["Approval"])
 app.include_router(product_feedback.router, prefix=f"{settings.API_V1_PREFIX}/product-feedback", tags=["Feedback"])
 app.include_router(keyword_research.router, prefix=f"{settings.API_V1_PREFIX}/keyword-research", tags=["Keywords"])
-
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 logger.info("✅ All routes registered")
