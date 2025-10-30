@@ -1,7 +1,7 @@
 // pod-dashboard/src/app/page.tsx
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,8 +78,8 @@ export default function DashboardPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
   
-  // ✅ NEW: Track permanently hidden products to prevent flicker
-  const [hiddenProducts, setHiddenProducts] = useState<Set<number>>(new Set());
+  // ✨ CRITICAL FIX: Track hidden products across refreshes using useRef
+  const hiddenProductIds = useRef<Set<number>>(new Set());
   
   // Generation settings
   const [budgetMode, setBudgetMode] = useState<'cheap' | 'balanced' | 'quality'>('balanced');
@@ -121,10 +121,12 @@ export default function DashboardPage() {
       
       if (productsResponse?.ok) {
         const productsData = await productsResponse.json();
-        // Filter out rejected products AND products in hidden set
+        
+        // ✨ CRITICAL FIX: Filter out hidden products IMMEDIATELY on every fetch
         const visibleProducts = (productsData.products || []).filter(
-          (p: Product) => p.status !== 'rejected' && !hiddenProducts.has(p.id)
+          (p: Product) => p.status !== 'rejected' && !hiddenProductIds.current.has(p.id)
         );
+        
         setRecentProducts(visibleProducts);
       }
       
@@ -144,11 +146,11 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ FIXED: Approve product with permanent hiding
+  // ✨ FIXED: Approve product with permanent hiding
   const approveProduct = async (productId: number) => {
     try {
-      // Add to hidden products immediately (prevents flicker)
-      setHiddenProducts(prev => new Set(prev).add(productId));
+      // Add to hidden list IMMEDIATELY to prevent flicker
+      hiddenProductIds.current.add(productId);
       
       // Optimistically remove from UI
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
@@ -164,11 +166,7 @@ export default function DashboardPage() {
 
       if (!response.ok) {
         // If API call failed, remove from hidden set and refetch
-        setHiddenProducts(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(productId);
-          return newSet;
-        });
+        hiddenProductIds.current.delete(productId);
         await fetchData();
         throw new Error('Approval failed');
       }
@@ -182,11 +180,11 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ FIXED: Reject product with permanent hiding
+  // ✨ FIXED: Reject product with permanent hiding
   const rejectProduct = async (productId: number) => {
     try {
-      // Add to hidden products immediately (prevents flicker)
-      setHiddenProducts(prev => new Set(prev).add(productId));
+      // Add to hidden list IMMEDIATELY to prevent flicker
+      hiddenProductIds.current.add(productId);
       
       // Optimistically remove from UI
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
@@ -202,11 +200,7 @@ export default function DashboardPage() {
 
       if (!response.ok) {
         // If API call failed, remove from hidden set and refetch
-        setHiddenProducts(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(productId);
-          return newSet;
-        });
+        hiddenProductIds.current.delete(productId);
         await fetchData();
         throw new Error('Rejection failed');
       }
@@ -373,8 +367,8 @@ export default function DashboardPage() {
     );
   }
 
-  // ✅ Filter visible products: exclude hidden products
-  const visibleProducts = recentProducts.filter(p => !hiddenProducts.has(p.id));
+  // ✨ Filter visible products using the hidden products ref
+  const visibleProducts = recentProducts.filter(p => !hiddenProductIds.current.has(p.id));
   const productsWithImages = visibleProducts.filter(p => p.artwork?.image_url);
   const dailyCalc = calculateDailyGeneration();
 
