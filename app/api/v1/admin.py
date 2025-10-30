@@ -281,7 +281,6 @@ KEYWORD_DATABASE = {
 
 @router.post("/load-keywords")
 async def load_keywords(
-    admin_verified: bool = Depends(verify_admin_key),
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
     """
@@ -353,7 +352,6 @@ async def load_keywords(
 
 @router.get("/keywords-status")
 async def keywords_status(
-    admin_verified: bool = Depends(verify_admin_key),
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
     """Check how many keywords are loaded and ready"""
@@ -391,7 +389,6 @@ async def keywords_status(
 
 @router.delete("/clear-keywords")
 async def clear_keywords(
-    admin_verified: bool = Depends(verify_admin_key),
     db_pool: DatabasePool = Depends(get_db_pool),
     confirm: str = None
 ):
