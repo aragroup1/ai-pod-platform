@@ -78,6 +78,9 @@ export default function DashboardPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
   
+  // ✅ NEW: Track permanently hidden products to prevent flicker
+  const [hiddenProducts, setHiddenProducts] = useState<Set<number>>(new Set());
+  
   // Generation settings
   const [budgetMode, setBudgetMode] = useState<'cheap' | 'balanced' | 'quality'>('balanced');
   const [testingMode, setTestingMode] = useState(true);
@@ -118,12 +121,11 @@ export default function DashboardPage() {
       
       if (productsResponse?.ok) {
         const productsData = await productsResponse.json();
-        // Since we're fetching status=active, rejected products shouldn't be returned
-        // But double-filter just to be safe
-        const activeProducts = (productsData.products || []).filter(
-          (p: Product) => p.status !== 'rejected'
+        // Filter out rejected products AND products in hidden set
+        const visibleProducts = (productsData.products || []).filter(
+          (p: Product) => p.status !== 'rejected' && !hiddenProducts.has(p.id)
         );
-        setRecentProducts(activeProducts);
+        setRecentProducts(visibleProducts);
       }
       
       if (genStatusResponse?.ok) {
@@ -142,10 +144,13 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ FIXED: Approve product with optimistic UI update
+  // ✅ FIXED: Approve product with permanent hiding
   const approveProduct = async (productId: number) => {
     try {
-      // Optimistically remove from UI immediately
+      // Add to hidden products immediately (prevents flicker)
+      setHiddenProducts(prev => new Set(prev).add(productId));
+      
+      // Optimistically remove from UI
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
       
       const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
@@ -158,7 +163,12 @@ export default function DashboardPage() {
       });
 
       if (!response.ok) {
-        // If API call failed, refetch to restore correct state
+        // If API call failed, remove from hidden set and refetch
+        setHiddenProducts(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(productId);
+          return newSet;
+        });
         await fetchData();
         throw new Error('Approval failed');
       }
@@ -172,10 +182,13 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ FIXED: Reject product with optimistic UI update
+  // ✅ FIXED: Reject product with permanent hiding
   const rejectProduct = async (productId: number) => {
     try {
-      // Optimistically remove from UI immediately
+      // Add to hidden products immediately (prevents flicker)
+      setHiddenProducts(prev => new Set(prev).add(productId));
+      
+      // Optimistically remove from UI
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
       
       const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
@@ -188,7 +201,12 @@ export default function DashboardPage() {
       });
 
       if (!response.ok) {
-        // If API call failed, refetch to restore correct state
+        // If API call failed, remove from hidden set and refetch
+        setHiddenProducts(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(productId);
+          return newSet;
+        });
         await fetchData();
         throw new Error('Rejection failed');
       }
@@ -355,7 +373,9 @@ export default function DashboardPage() {
     );
   }
 
-  const productsWithImages = recentProducts.filter(p => p.artwork?.image_url);
+  // ✅ Filter visible products: exclude hidden products
+  const visibleProducts = recentProducts.filter(p => !hiddenProducts.has(p.id));
+  const productsWithImages = visibleProducts.filter(p => p.artwork?.image_url);
   const dailyCalc = calculateDailyGeneration();
 
   const progressData = [
