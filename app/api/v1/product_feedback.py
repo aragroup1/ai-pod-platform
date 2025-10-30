@@ -92,7 +92,7 @@ async def record_feedback(
             """
             UPDATE products 
             SET status = $1::product_status,
-                updated_at = NOW()
+              
             WHERE id = $2
             """,
             new_status,
