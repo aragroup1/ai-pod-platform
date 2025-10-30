@@ -118,7 +118,8 @@ export default function DashboardPage() {
       
       if (productsResponse?.ok) {
         const productsData = await productsResponse.json();
-        // Filter out rejected products so they don't reappear in gallery
+        // Since we're fetching status=active, rejected products shouldn't be returned
+        // But double-filter just to be safe
         const activeProducts = (productsData.products || []).filter(
           (p: Product) => p.status !== 'rejected'
         );
@@ -141,9 +142,12 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ FIXED: Approve product - no automatic refetch
+  // ✅ FIXED: Approve product with optimistic UI update
   const approveProduct = async (productId: number) => {
     try {
+      // Optimistically remove from UI immediately
+      setRecentProducts(prev => prev.filter(p => p.id !== productId));
+      
       const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -153,23 +157,27 @@ export default function DashboardPage() {
         })
       });
 
-      if (!response.ok) throw new Error('Approval failed');
+      if (!response.ok) {
+        // If API call failed, refetch to restore correct state
+        await fetchData();
+        throw new Error('Approval failed');
+      }
 
       toast.success(`Product approved for Shopify!`, {
         icon: <Check className="h-4 w-4" />
       });
-      
-      // Remove from gallery immediately
-      setRecentProducts(prev => prev.filter(p => p.id !== productId));
       
     } catch (err: any) {
       toast.error(`Approval failed: ${err.message}`);
     }
   };
 
-  // ✅ FIXED: Reject product - no automatic refetch to avoid race condition
+  // ✅ FIXED: Reject product with optimistic UI update
   const rejectProduct = async (productId: number) => {
     try {
+      // Optimistically remove from UI immediately
+      setRecentProducts(prev => prev.filter(p => p.id !== productId));
+      
       const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -179,10 +187,11 @@ export default function DashboardPage() {
         })
       });
 
-      if (!response.ok) throw new Error('Rejection failed');
-
-      // Remove from UI immediately
-      setRecentProducts(prev => prev.filter(p => p.id !== productId));
+      if (!response.ok) {
+        // If API call failed, refetch to restore correct state
+        await fetchData();
+        throw new Error('Rejection failed');
+      }
       
       toast.success(`Product rejected and deleted from S3`, {
         icon: <ThumbsDown className="h-4 w-4" />
