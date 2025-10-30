@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from loguru import logger
 import sys
-
+from app.api.v1 import admin
 from app.config import settings
 from app.database import db_pool
 from app.utils.cache import redis_client
@@ -14,6 +14,8 @@ from app.api.v1 import (
     analytics, analytics_detailed, generation, approval,
     product_feedback, keyword_research
 )
+
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 
 # Configure logging
 logger.remove()
