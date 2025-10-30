@@ -350,44 +350,104 @@ async def get_trend_analytics(db_pool = Depends(get_db_pool)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================
+# COPY THIS ENTIRE BLOCK INTO YOUR trends.py
+# Add at the BOTTOM of the file
+# Make sure these imports are at the TOP:
+#   from app.database import DatabasePool
+#   from app.dependencies import get_db_pool
+# ============================================
+
 @router.post("/load-initial-keywords")
 async def load_initial_keywords(db_pool: DatabasePool = Depends(get_db_pool)):
     """
-    Load 600+ curated keywords - one click setup!
+    Load 1,250+ curated keywords across 74 categories!
+    One-click setup - generates ~10,000 SKUs
     """
     try:
-        # All keywords embedded here - no external API needed!
-        keywords = {
-            "Mountains": ["mountain", "peak", "summit", "alpine", "mountain range", "snow mountain", "rocky mountain", "mountain sunset", "mountain lake", "himalayan peak", "misty mountain", "mountain landscape", "mountain vista", "mountain trail", "mountain reflection"],
-            "Oceans": ["ocean", "sea", "waves", "beach", "coastline", "seascape", "tropical beach", "ocean sunset", "turquoise ocean", "lighthouse", "pier", "harbor", "bay", "coastal view", "ocean waves"],
-            "Forests": ["forest", "woodland", "trees", "pine forest", "autumn forest", "winter forest", "forest path", "enchanted forest", "misty forest", "rainforest", "jungle", "tree canopy", "forest trail"],
-            "Flowers": ["rose", "tulip", "sunflower", "daisy", "lily", "orchid", "cherry blossom", "lavender", "poppy", "wildflower", "botanical", "pressed flowers", "watercolor flowers", "vintage flowers", "floral arrangement", "bouquet", "garden flowers", "spring flowers"],
-            "Wildlife": ["deer", "wolf", "bear", "eagle", "lion", "tiger", "elephant", "giraffe", "zebra", "fox", "owl", "butterfly", "whale", "dolphin", "penguin", "panda", "koala", "sloth"],
-            "Sky": ["clouds", "storm", "lightning", "aurora", "northern lights", "milky way", "stars", "starry night", "nebula", "galaxy", "moon", "full moon", "sunrise", "sunset", "golden hour", "rainbow"],
-            "Abstract": ["abstract", "abstract art", "modern abstract", "color field", "gradient", "watercolor abstract", "fluid art", "pour painting", "marbling", "abstract landscape", "blue abstract", "gold abstract", "pink abstract", "geometric abstract"],
-            "Geometric": ["geometric", "mandala", "sacred geometry", "pattern", "symmetry", "chevron", "moroccan pattern", "tribal pattern", "tessellation", "hexagon", "minimalist geometric"],
-            "Minimalist": ["minimalist", "simple", "clean design", "zen", "line art", "one line drawing", "minimal landscape", "minimal floral", "black and white", "monochrome"],
-            "Textures": ["marble", "gold marble", "granite", "wood grain", "concrete", "rust", "weathered", "gold foil", "rose gold", "copper", "brushed metal"],
-            "Motivational": ["be kind", "stay positive", "dream big", "never give up", "you got this", "keep going", "stay strong", "choose joy", "inspire", "create", "breathe", "peace", "love", "gratitude", "blessed"],
-            "Funny": ["coffee first", "but first coffee", "wine time", "wine not", "dog mom", "cat mom", "crazy cat lady", "out of office", "not today", "allergic to mornings", "peopling is hard"],
-            "Professions": ["teacher", "nurse", "doctor", "engineer", "lawyer", "chef", "artist", "designer", "writer", "photographer", "entrepreneur", "boss"],
-            "Family": ["mom", "dad", "grandma", "grandpa", "mom life", "dad life", "boy mom", "girl mom", "best friend", "family", "sister", "brother"],
-            "Dogs": ["dog", "puppy", "golden retriever", "labrador", "french bulldog", "corgi", "pug", "husky", "german shepherd", "poodle", "goldendoodle"],
-            "Cats": ["cat", "kitten", "black cat", "orange cat", "tabby", "cat lover", "cat mom", "cat dad"],
-            "Birds": ["eagle", "owl", "hawk", "hummingbird", "cardinal", "blue jay", "swan", "flamingo", "peacock", "parrot", "penguin"],
-            "Marine": ["whale", "dolphin", "shark", "octopus", "jellyfish", "sea turtle", "starfish", "seahorse", "tropical fish", "coral reef"],
-            "Cities": ["new york", "london", "paris", "tokyo", "rome", "barcelona", "amsterdam", "venice", "sydney", "san francisco"],
-            "Christmas": ["christmas", "santa", "christmas tree", "snowman", "reindeer", "christmas ornament", "christmas lights", "wreath", "candy cane", "gingerbread", "festive"],
-            "Halloween": ["halloween", "pumpkin", "jack o lantern", "ghost", "witch", "black cat", "spider", "haunted", "skeleton", "skull", "spooky"],
-            "Valentines": ["valentines day", "love", "heart", "romance", "cupid", "xoxo", "forever", "soulmate"],
-            "Easter": ["easter", "easter bunny", "easter egg", "bunny", "rabbit", "spring"],
-            "Thanksgiving": ["thanksgiving", "thankful", "grateful", "turkey", "harvest", "autumn"],
-            "Other Holidays": ["mothers day", "fathers day", "graduation", "birthday", "wedding", "anniversary", "new year"],
+        logger.info("🚀 Loading MEGA keyword database...")
+        
+        # 1,250+ KEYWORDS ACROSS 74 CATEGORIES!
+        mega_keywords = {
+            "Mountains & Peaks": ["mountain", "peak", "summit", "alpine", "mountain range", "snow capped", "rocky mountain", "mountain sunset", "mountain sunrise", "mountain lake", "mountain forest", "mountain valley", "mountain meadow", "himalayan", "mountain trail", "mountain reflection", "misty mountain", "dramatic mountain", "mountain silhouette", "mountain vista", "mountain wilderness", "mountain ridge", "mountain pass", "mountain glacier", "mountain stream", "mountain waterfall", "mountain panorama", "mountain scenery"],
+            "Oceans & Seas": ["ocean", "sea", "waves", "beach", "coastline", "seascape", "ocean waves", "tropical beach", "sandy beach", "ocean sunset", "sea foam", "tidal wave", "beach scene", "coastal view", "ocean horizon", "beach paradise", "turquoise ocean", "azure sea", "stormy sea", "calm ocean", "ocean breeze", "lighthouse", "pier", "dock", "harbor", "marina", "bay", "cove", "cliff coast", "rocky shore", "beach sunrise", "ocean life", "seaside", "coastal landscape"],
+            "Forests & Trees": ["forest", "woodland", "trees", "pine forest", "redwood", "oak tree", "birch", "bamboo", "jungle", "rainforest", "tropical forest", "autumn forest", "winter forest", "spring forest", "summer forest", "forest path", "forest trail", "tree canopy", "forest clearing", "enchanted forest", "misty forest", "dark forest", "sunlit forest", "forest stream", "ancient forest", "evergreen", "deciduous", "tree silhouette"],
+            "Flowers & Plants": ["rose", "tulip", "sunflower", "daisy", "lily", "orchid", "peony", "lotus", "cherry blossom", "lavender", "poppy", "iris", "hydrangea", "magnolia", "dahlia", "marigold", "carnation", "chrysanthemum", "daffodil", "violet", "wildflower", "botanical", "pressed flowers", "watercolor flowers", "vintage flowers", "spring flowers", "summer flowers", "tropical flowers", "dried flowers", "flower garden", "flower field", "flower bouquet", "floral arrangement", "flower wreath", "cactus", "succulent", "fern", "palm leaf"],
+            "Wildlife Mammals": ["deer", "wolf", "bear", "grizzly", "polar bear", "eagle", "lion", "tiger", "elephant", "giraffe", "zebra", "fox", "red fox", "arctic fox", "owl", "hawk", "falcon", "butterfly", "whale", "dolphin", "penguin", "panda", "koala", "kangaroo", "sloth", "raccoon", "squirrel", "moose", "elk", "bison", "buffalo", "cheetah", "leopard", "jaguar", "lynx", "otter", "seal", "walrus"],
+            "Birds": ["eagle", "bald eagle", "hawk", "owl", "barn owl", "snowy owl", "falcon", "hummingbird", "cardinal", "blue jay", "robin", "sparrow", "swan", "flamingo", "peacock", "toucan", "parrot", "macaw", "penguin", "pelican", "heron", "crane", "stork", "woodpecker", "kingfisher", "crow", "raven", "dove", "pigeon"],
+            "Marine Life": ["whale", "humpback whale", "blue whale", "orca", "dolphin", "shark", "great white", "octopus", "jellyfish", "sea turtle", "starfish", "seahorse", "clownfish", "tropical fish", "coral reef", "seal", "sea lion", "crab", "lobster", "shrimp", "manta ray", "angelfish", "sailfish", "marlin"],
+            "Sky & Weather": ["clouds", "storm", "lightning", "thunder", "aurora", "northern lights", "milky way", "stars", "starry night", "constellation", "nebula", "galaxy", "moon", "full moon", "crescent moon", "sun", "sunrise", "sunset", "golden hour", "blue hour", "rainbow", "dramatic sky", "cloudy", "foggy", "misty", "stormy sky", "clear sky"],
+            "Seasons": ["spring", "summer", "autumn", "fall", "winter", "springtime", "summertime", "fall foliage", "autumn leaves", "winter wonderland", "spring blossom", "summer sunset", "fall colors", "winter snow", "seasonal", "spring flowers", "summer vibes", "autumn harvest"],
+            "Landscapes": ["landscape", "scenery", "vista", "panorama", "countryside", "rural", "pastoral", "meadow", "field", "prairie", "valley", "canyon", "desert", "dunes", "oasis", "savanna", "tundra", "glacier", "iceberg", "volcano", "hill", "cliff", "cave", "waterfall", "river", "lake", "pond", "wetland"],
+            "Abstract Art": ["abstract", "abstract art", "modern abstract", "contemporary", "color field", "gradient", "ombre", "color splash", "paint stroke", "brush stroke", "ink splash", "watercolor abstract", "acrylic abstract", "fluid art", "pour painting", "marbling", "abstract expressionism", "abstract landscape", "abstract floral", "blue abstract", "gold abstract", "pink abstract", "teal abstract", "minimalist abstract", "bold abstract", "colorful abstract", "monochrome abstract"],
+            "Geometric": ["geometric", "geometric pattern", "triangle", "hexagon", "circle", "square", "polygon", "tessellation", "mandala", "sacred geometry", "fractal", "kaleidoscope", "symmetry", "chevron", "herringbone", "quatrefoil", "moroccan", "arabesque", "tribal", "aztec", "nordic", "scandinavian", "art deco", "mid century", "modern geometric", "3d geometric", "isometric"],
+            "Minimalist": ["minimalist", "minimal", "simple", "clean", "modern", "zen", "line art", "one line", "continuous line", "simple shape", "minimal landscape", "minimal floral", "minimal abstract", "monochrome", "negative space", "whitespace", "simple design", "minimal geometric", "minimal typography"],
+            "Textures": ["marble", "gold marble", "granite", "stone", "wood grain", "concrete", "rust", "weathered", "distressed", "vintage texture", "metal", "copper", "brass", "gold foil", "rose gold", "silver", "brushed metal", "aged", "patina", "fabric", "linen", "canvas", "paper texture"],
+            "Color Themes": ["blue", "navy", "teal", "turquoise", "green", "sage", "emerald", "pink", "blush", "coral", "red", "burgundy", "orange", "peach", "yellow", "gold", "purple", "lavender", "brown", "beige", "neutral", "black white", "grayscale", "pastel", "bold colors", "earth tones", "jewel tones"],
+            "Motivational": ["be kind", "stay positive", "dream big", "never give up", "believe", "you got this", "keep going", "stay strong", "be brave", "choose joy", "make it happen", "live your best life", "follow your dreams", "inspire", "create", "hustle", "grind", "focus", "breathe", "relax", "peace", "love", "hope", "faith", "courage", "strength", "wisdom", "gratitude", "blessed", "thankful", "mindful", "present", "shine bright", "be yourself", "chase dreams", "good vibes", "positive energy"],
+            "Funny & Sarcastic": ["coffee first", "but first coffee", "powered by coffee", "coffee lover", "wine time", "wine not", "wine lover", "save water drink wine", "sarcasm loading", "does not compute", "error 404", "out of office", "not today", "nope", "meh", "whatever", "yay monday", "allergic to mornings", "i need my space", "introverted", "peopling is hard", "nope not today", "currently unavailable"],
+            "Pet Lovers": ["dog mom", "dog dad", "cat mom", "cat dad", "crazy cat lady", "dog lover", "cat lover", "fur mama", "pet parent", "rescue mom", "adopt dont shop", "dog hair dont care", "cat hair dont care", "paw print", "dog life", "cat life"],
+            "Medical": ["nurse", "nurse life", "nursing", "rn", "doctor", "physician", "surgeon", "dentist", "dental hygienist", "veterinarian", "vet tech", "pharmacist", "paramedic", "emt", "therapist", "healthcare worker", "medical professional", "hospital life"],
+            "Education": ["teacher", "best teacher", "teacher life", "teach love inspire", "professor", "principal", "librarian", "tutor", "educator", "school counselor", "teaching assistant"],
+            "Tech": ["engineer", "software engineer", "web developer", "programmer", "coder", "tech", "it professional", "data scientist", "developer", "software developer"],
+            "Business": ["entrepreneur", "boss", "ceo", "manager", "business owner", "hustle", "small business", "girl boss", "boss lady"],
+            "Creative": ["artist", "painter", "designer", "graphic designer", "photographer", "writer", "author", "illustrator", "creative", "maker"],
+            "Service": ["chef", "cook", "baker", "barista", "server", "bartender", "hairdresser", "stylist", "makeup artist", "nail tech"],
+            "Other Jobs": ["lawyer", "attorney", "accountant", "realtor", "real estate", "mechanic", "plumber", "electrician", "contractor", "architect"],
+            "Parents": ["mom", "mama", "mother", "mommy", "mom life", "boy mom", "girl mom", "twin mom", "mama bear", "dad", "father", "daddy", "papa", "dad life", "girl dad", "boy dad"],
+            "Grandparents": ["grandma", "grandmother", "nana", "granny", "mimi", "gigi", "grandpa", "grandfather", "papa", "pops", "grandparent"],
+            "Family": ["aunt", "auntie", "funcle", "uncle", "sister", "brother", "family", "tribe", "blessed family"],
+            "Relationships": ["wife", "husband", "spouse", "partner", "soulmate", "best friend", "bff", "friendship", "squad", "bride", "groom", "engaged", "mrs", "mr"],
+            "Popular Dogs": ["dog", "puppy", "golden retriever", "labrador", "lab", "french bulldog", "frenchie", "corgi", "pug", "beagle", "husky", "siberian husky", "german shepherd", "shepherd", "poodle", "doodle", "goldendoodle", "labradoodle", "shih tzu", "yorkie"],
+            "Working Dogs": ["rottweiler", "doberman", "boxer", "great dane", "mastiff", "st bernard", "bernese mountain dog", "australian shepherd", "aussie", "border collie", "cattle dog"],
+            "Small Dogs": ["chihuahua", "dachshund", "wiener dog", "maltese", "pomeranian", "papillon", "toy poodle", "mini poodle"],
+            "Cats": ["cat", "kitten", "tabby", "orange cat", "ginger cat", "black cat", "white cat", "persian", "siamese", "maine coon", "ragdoll", "british shorthair", "bengal", "sphynx", "calico", "tortoiseshell", "tuxedo cat"],
+            "Farm Animals": ["horse", "pony", "cow", "pig", "sheep", "lamb", "goat", "chicken", "rooster", "duck", "goose", "turkey", "donkey", "llama", "alpaca"],
+            "Exotic Pets": ["rabbit", "bunny", "hamster", "guinea pig", "ferret", "hedgehog", "chinchilla", "sugar glider", "parrot", "bird", "fish", "turtle", "lizard", "snake", "iguana"],
+            "US Cities": ["new york", "nyc", "manhattan", "brooklyn", "los angeles", "chicago", "houston", "phoenix", "philadelphia", "san antonio", "san diego", "dallas", "san francisco", "austin", "seattle", "boston", "miami", "atlanta", "denver", "portland", "las vegas"],
+            "World Cities": ["london", "paris", "tokyo", "rome", "barcelona", "amsterdam", "venice", "prague", "budapest", "vienna", "berlin", "dubai", "sydney", "melbourne", "toronto", "vancouver", "hong kong", "singapore", "bangkok", "istanbul"],
+            "Landmarks": ["eiffel tower", "big ben", "tower bridge", "colosseum", "taj mahal", "great wall", "statue of liberty", "golden gate bridge", "sydney opera house", "burj khalifa", "empire state"],
+            "Travel": ["travel", "wanderlust", "adventure", "explore", "journey", "vacation", "passport", "world map", "compass", "airplane", "luggage", "suitcase", "road trip", "camping", "hiking"],
+            "Architecture": ["modern architecture", "gothic", "victorian", "art deco", "brutalist", "minimalist architecture", "japanese architecture", "mediterranean", "colonial", "craftsman", "cottage", "mid century"],
+            "Christmas": ["christmas", "merry christmas", "xmas", "christmas tree", "santa", "santa claus", "reindeer", "rudolph", "snowman", "frosty", "ornament", "christmas lights", "wreath", "holly", "mistletoe", "candy cane", "gingerbread", "stocking", "presents", "festive", "winter wonderland", "sleigh", "elf", "north pole", "jingle bells"],
+            "Halloween": ["halloween", "happy halloween", "spooky", "pumpkin", "jack o lantern", "ghost", "boo", "witch", "black cat", "spider", "spider web", "haunted", "creepy", "skeleton", "skull", "bones", "candy corn", "trick or treat", "october", "zombie", "vampire", "mummy", "monster", "bat"],
+            "Valentines": ["valentines day", "valentine", "love", "heart", "hearts", "red heart", "pink heart", "cupid", "romance", "romantic", "kiss", "xoxo", "love you", "i love you", "forever", "always", "soulmate", "be mine", "sweetheart"],
+            "Easter": ["easter", "happy easter", "easter egg", "easter bunny", "bunny", "rabbit", "easter basket", "spring", "pastel", "egg hunt", "chick", "easter sunday"],
+            "Thanksgiving": ["thanksgiving", "happy thanksgiving", "thankful", "grateful", "gratitude", "turkey", "pumpkin pie", "autumn", "fall", "harvest", "november", "feast"],
+            "Mothers Day": ["mothers day", "happy mothers day", "mom", "mama", "best mom", "mom life", "super mom", "mom squad", "motherhood", "mom to be"],
+            "Fathers Day": ["fathers day", "happy fathers day", "dad", "father", "best dad", "dad life", "super dad", "fatherhood", "dad to be"],
+            "Other Holidays": ["graduation", "graduate", "class of 2024", "class of 2025", "birthday", "happy birthday", "birthday girl", "birthday boy", "wedding", "just married", "mr and mrs", "bride", "groom", "anniversary", "new year", "happy new year", "2025", "fourth of july", "independence day", "july 4th", "patriotic", "usa", "america", "st patricks day", "irish", "lucky", "shamrock", "cinco de mayo"],
+            "Fitness": ["fitness", "gym", "workout", "exercise", "lift", "weights", "dumbbell", "barbell", "crossfit", "strong", "muscle", "gains", "fit life", "train", "cardio", "running", "marathon", "5k", "runner"],
+            "Yoga": ["yoga", "namaste", "yogi", "meditation", "zen", "om", "chakra", "mindfulness", "yoga life", "downward dog", "warrior pose"],
+            "Team Sports": ["football", "soccer", "basketball", "baseball", "hockey", "volleyball", "softball", "lacrosse", "rugby"],
+            "Individual Sports": ["tennis", "golf", "swimming", "cycling", "running", "skiing", "snowboarding", "surfing", "skateboarding", "climbing", "boxing", "martial arts"],
+            "Outdoor": ["hiking", "camping", "fishing", "hunting", "kayaking", "canoeing", "backpacking", "trail", "outdoor", "nature lover", "mountain life", "adventure"],
+            "Gaming": ["gamer", "gaming", "video games", "game on", "level up", "player", "controller", "console", "pc gaming", "esports"],
+            "Music": ["music", "musician", "guitar", "piano", "drums", "singing", "band", "concert", "rock", "jazz", "classical", "country", "hip hop", "pop music"],
+            "Reading": ["book lover", "bookworm", "reading", "library", "books", "reader", "bibliophile", "book club"],
+            "Coffee": ["coffee", "espresso", "latte", "cappuccino", "americano", "cold brew", "iced coffee", "coffee shop", "cafe", "barista", "coffee time", "coffee addict", "coffee break"],
+            "Tea": ["tea", "tea time", "tea lover", "green tea", "black tea", "chai", "matcha", "herbal tea", "afternoon tea", "tea party"],
+            "Wine": ["wine", "red wine", "white wine", "rose", "wine lover", "wine time", "vineyard", "winery", "wine tasting", "sommelier", "wine glass"],
+            "Beer": ["beer", "craft beer", "ipa", "ale", "lager", "brewery", "beer lover", "hops", "beer time"],
+            "Cocktails": ["cocktail", "martini", "margarita", "mojito", "cosmopolitan", "old fashioned", "manhattan", "whiskey", "bourbon", "gin", "vodka"],
+            "Food": ["pizza", "burger", "sushi", "tacos", "pasta", "bread", "cake", "cupcake", "donut", "ice cream", "chocolate", "cheese", "bacon", "avocado", "food lover", "foodie"],
+            "Spiritual": ["spiritual", "spirituality", "mindfulness", "meditation", "zen", "peace", "harmony", "balance", "enlightenment", "awakening", "consciousness"],
+            "Mystical": ["mystical", "magic", "magical", "witch", "witchcraft", "wicca", "pagan", "spell", "crystal", "healing", "energy", "aura", "chakra"],
+            "Zodiac": ["zodiac", "astrology", "horoscope", "aries", "taurus", "gemini", "cancer", "leo", "virgo", "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces", "star sign"],
+            "Symbols": ["mandala", "om", "lotus", "hamsa", "evil eye", "dreamcatcher", "feather", "moon", "sun", "star", "tree of life", "yin yang", "infinity"],
+            "Vintage Eras": ["vintage", "retro", "antique", "classic", "nostalgic", "1920s", "1930s", "1940s", "1950s", "1960s", "1970s", "1980s", "1990s", "art nouveau", "art deco", "mid century", "victorian", "baroque"],
+            "Vintage Items": ["vintage car", "classic car", "vintage camera", "typewriter", "record player", "vinyl", "cassette", "retro radio", "rotary phone", "vintage map", "compass", "antique clock"],
+            "Space": ["space", "galaxy", "nebula", "planet", "solar system", "astronaut", "rocket", "moon landing", "mars", "jupiter", "saturn", "stars", "constellation", "comet", "asteroid", "black hole", "supernova"],
+            "Science": ["science", "chemistry", "physics", "biology", "astronomy", "molecule", "atom", "dna", "laboratory", "microscope", "telescope", "experiment"],
+            "Baby Animals": ["baby elephant", "baby giraffe", "baby lion", "baby bear", "baby fox", "baby deer", "baby bunny", "baby penguin", "baby seal", "baby panda"],
+            "Kids Characters": ["dinosaur", "t rex", "unicorn", "rainbow", "superhero", "princess", "pirate", "mermaid", "fairy", "dragon", "robot", "alien"],
+            "Kids Themes": ["abc", "alphabet", "numbers", "123", "shapes", "colors", "nursery", "playroom", "toys", "balloons", "stars", "moon"],
+            "Vehicles": ["car", "truck", "train", "airplane", "helicopter", "boat", "ship", "rocket", "fire truck", "police car", "ambulance", "tractor", "excavator"],
         }
         
         total = 0
-        for category, kw_list in keywords.items():
-            for kw in kw_list:
+        for cat, kws in mega_keywords.items():
+            for kw in kws:
                 try:
                     await db_pool.execute(
                         """
@@ -396,19 +456,19 @@ async def load_initial_keywords(db_pool: DatabasePool = Depends(get_db_pool)):
                         ON CONFLICT (keyword, region) DO UPDATE
                         SET category = EXCLUDED.category, trend_score = GREATEST(trends.trend_score, 8.0), status = 'ready'
                         """,
-                        kw, category
+                        kw, cat
                     )
                     total += 1
                 except Exception as e:
                     logger.error(f"Failed: {kw} - {e}")
         
-        logger.success(f"✅ Loaded {total} keywords!")
+        logger.success(f"✅ Loaded {total} keywords across {len(mega_keywords)} categories!")
         return {
             "success": True,
             "keywords_loaded": total,
-            "categories": len(keywords),
+            "categories": len(mega_keywords),
             "expected_skus": total * 8,
-            "message": f"Loaded {total} keywords!"
+            "message": f"Loaded {total} keywords! Ready to generate {total * 8} SKUs!"
         }
     except Exception as e:
         logger.error(f"Error: {e}")
