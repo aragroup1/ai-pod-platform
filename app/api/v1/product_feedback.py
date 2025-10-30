@@ -3,6 +3,7 @@
 Product Feedback API - Learn from User Preferences
 Stores approvals/rejections and learns from patterns
 ✅ NOW WITH AWS S3 DELETION ON REJECT
+✅ FIXED: Deletes rejected products instead of updating to invalid enum
 """
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -37,7 +38,7 @@ async def record_feedback(
     Record user feedback on a product
     This helps the AI learn what you like/dislike
     
-    ✅ FIXED: Now deletes from AWS S3 when rejecting
+    ✅ FIXED: Now DELETES rejected products (they had invalid enum anyway)
     """
     try:
         # Get product details INCLUDING S3 key
@@ -54,7 +55,7 @@ async def record_feedback(
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
         
-        # Store feedback
+        # Store feedback BEFORE any deletions
         await db_pool.execute(
             """
             INSERT INTO product_feedback (
@@ -70,45 +71,62 @@ async def record_feedback(
             product['title'].split('-')[0].strip() if product['title'] else ''
         )
         
-        # Update product status
-        new_status = 'approved' if request.action == 'approve' else 'rejected'
-        
-        # ✅ NEW: Delete from S3 if rejecting
-        if request.action == 'reject' and product.get('s3_key'):
-            try:
-                storage = get_storage_manager()
-                deleted = storage.delete_image(product['s3_key'])
-                
-                if deleted:
-                    logger.info(f"✅ Deleted S3 image: {product['s3_key']}")
-                else:
-                    logger.warning(f"⚠️ Failed to delete S3 image: {product['s3_key']}")
+        if request.action == 'approve':
+            # Update to approved status
+            await db_pool.execute(
+                """
+                UPDATE products 
+                SET status = 'approved'::product_status,
+                   last_updated = NOW()
+                WHERE id = $1
+                """,
+                request.product_id
+            )
+            
+            logger.info(f"✅ Product {request.product_id} approved for Shopify")
+            
+            return {
+                "success": True,
+                "product_id": request.product_id,
+                "action": "approve",
+                "status": "approved",
+                "deleted": False
+            }
+            
+        else:  # reject
+            # Delete from S3 first
+            s3_deleted = False
+            if product.get('s3_key'):
+                try:
+                    storage = get_storage_manager()
+                    s3_deleted = storage.delete_image(product['s3_key'])
                     
-            except Exception as s3_error:
-                logger.error(f"❌ S3 deletion error: {s3_error}")
-                # Don't fail the rejection if S3 delete fails
-        
-        await db_pool.execute(
-            """
-            UPDATE products 
-            SET status = $1::product_status,
-               last_updated = NOW()
-            WHERE id = $2
-            """,
-            new_status,
-            request.product_id
-        )
-        
-        action_msg = "approved for Shopify" if request.action == 'approve' else "rejected and deleted from S3"
-        logger.info(f"Product {request.product_id} {action_msg}")
-        
-        return {
-            "success": True,
-            "product_id": request.product_id,
-            "action": request.action,
-            "status": new_status,
-            "s3_deleted": request.action == 'reject' and product.get('s3_key') is not None
-        }
+                    if s3_deleted:
+                        logger.info(f"✅ Deleted S3 image: {product['s3_key']}")
+                    else:
+                        logger.warning(f"⚠️ Failed to delete S3 image: {product['s3_key']}")
+                        
+                except Exception as s3_error:
+                    logger.error(f"❌ S3 deletion error: {s3_error}")
+            
+            # DELETE the product entirely (feedback is already stored)
+            await db_pool.execute(
+                """
+                DELETE FROM products WHERE id = $1
+                """,
+                request.product_id
+            )
+            
+            logger.info(f"🗑️ Product {request.product_id} rejected and DELETED from database")
+            
+            return {
+                "success": True,
+                "product_id": request.product_id,
+                "action": "reject",
+                "status": "deleted",
+                "s3_deleted": s3_deleted,
+                "deleted": True
+            }
         
     except HTTPException:
         raise
@@ -125,22 +143,80 @@ async def bulk_feedback(
 ):
     """
     Approve/reject multiple products at once
-    ✅ FIXED: Now deletes from AWS S3 when bulk rejecting
+    ✅ FIXED: Deletes rejected products instead of invalid status update
     """
     try:
-        new_status = 'approved' if request.action == 'approve' else 'rejected'
-        
-        # Get all products with S3 keys if rejecting
-        if request.action == 'reject':
+        if request.action == 'approve':
+            # Update all to approved
+            await db_pool.execute(
+                """
+                UPDATE products 
+                SET status = 'approved'::product_status,
+                    updated_at = NOW()
+                WHERE id = ANY($1)
+                """,
+                request.product_ids
+            )
+            
+            # Record feedback for each
+            for product_id in request.product_ids:
+                product = await db_pool.fetchrow(
+                    """
+                    SELECT p.*, a.style, a.provider
+                    FROM products p
+                    LEFT JOIN artwork a ON p.artwork_id = a.id
+                    WHERE p.id = $1
+                    """,
+                    product_id
+                )
+                
+                if product:
+                    await db_pool.execute(
+                        """
+                        INSERT INTO product_feedback (
+                            product_id, action, style, provider, created_at
+                        ) VALUES ($1, $2, $3, $4, NOW())
+                        """,
+                        product_id,
+                        'approve',
+                        product['style'],
+                        product['provider']
+                    )
+            
+            logger.info(f"✅ Bulk approved: {len(request.product_ids)} products")
+            
+            return {
+                "success": True,
+                "count": len(request.product_ids),
+                "action": "approve",
+                "deleted": False
+            }
+            
+        else:  # reject
+            # Get all products with S3 keys
             products = await db_pool.fetch(
                 """
-                SELECT p.id, a.image_url as s3_key, a.style, a.provider
+                SELECT p.id, p.title, a.image_url as s3_key, a.style, a.provider
                 FROM products p
                 LEFT JOIN artwork a ON p.artwork_id = a.id
                 WHERE p.id = ANY($1)
                 """,
                 request.product_ids
             )
+            
+            # Store feedback BEFORE deletion
+            for product in products:
+                await db_pool.execute(
+                    """
+                    INSERT INTO product_feedback (
+                        product_id, action, style, provider, created_at
+                    ) VALUES ($1, $2, $3, $4, NOW())
+                    """,
+                    product['id'],
+                    'reject',
+                    product['style'],
+                    product['provider']
+                )
             
             # Delete from S3
             storage = get_storage_manager()
@@ -155,57 +231,23 @@ async def bulk_feedback(
                     except Exception as e:
                         logger.error(f"❌ Failed to delete S3 for product {product['id']}: {e}")
             
-            logger.info(f"Deleted {deleted_count}/{len(products)} images from S3")
-        
-        # Update all products
-        await db_pool.execute(
-            """
-            UPDATE products 
-            SET status = $1::product_status,
-                updated_at = NOW()
-            WHERE id = ANY($2)
-            """,
-            new_status,
-            request.product_ids
-        )
-        
-        # Record feedback for each
-        for product_id in request.product_ids:
-            product = await db_pool.fetchrow(
+            # DELETE all products from database
+            await db_pool.execute(
                 """
-                SELECT p.*, a.style, a.provider
-                FROM products p
-                LEFT JOIN artwork a ON p.artwork_id = a.id
-                WHERE p.id = $1
+                DELETE FROM products WHERE id = ANY($1)
                 """,
-                product_id
+                request.product_ids
             )
             
-            if product:
-                await db_pool.execute(
-                    """
-                    INSERT INTO product_feedback (
-                        product_id, action, style, provider, created_at
-                    ) VALUES ($1, $2, $3, $4, NOW())
-                    """,
-                    product_id,
-                    request.action,
-                    product['style'],
-                    product['provider']
-                )
-        
-        action_msg = f"{request.action}ed"
-        if request.action == 'reject':
-            action_msg += " and deleted from S3"
+            logger.info(f"🗑️ Bulk rejected: {len(request.product_ids)} products DELETED (S3: {deleted_count}/{len(products)})")
             
-        logger.info(f"Bulk feedback: {len(request.product_ids)} products {action_msg}")
-        
-        return {
-            "success": True,
-            "count": len(request.product_ids),
-            "action": request.action,
-            "s3_deleted": request.action == 'reject'
-        }
+            return {
+                "success": True,
+                "count": len(request.product_ids),
+                "action": "reject",
+                "s3_deleted": deleted_count,
+                "deleted": True
+            }
         
     except Exception as e:
         logger.error(f"Error in bulk feedback: {e}")
@@ -218,15 +260,24 @@ async def get_rejected_products(
     limit: int = 100,
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
-    """Get all rejected products (hidden from gallery)"""
+    """
+    Get all rejected products from feedback history
+    NOTE: Products are now DELETED, so this queries the feedback table
+    """
     try:
-        products = await db_pool.fetch(
+        # Query feedback history instead since products are deleted
+        rejected = await db_pool.fetch(
             """
-            SELECT p.id, p.title, p.sku, a.style, a.image_url as s3_key
-            FROM products p
-            LEFT JOIN artwork a ON p.artwork_id = a.id
-            WHERE p.status = 'rejected'
-            ORDER BY p.updated_at DESC
+            SELECT 
+                pf.product_id,
+                pf.style,
+                pf.provider,
+                pf.keyword,
+                pf.created_at,
+                'DELETED' as note
+            FROM product_feedback pf
+            WHERE pf.action = 'reject'
+            ORDER BY pf.created_at DESC
             LIMIT $1
             """,
             limit
@@ -235,16 +286,16 @@ async def get_rejected_products(
         return {
             "products": [
                 {
-                    "id": p["id"],
-                    "title": p["title"],
-                    "sku": p["sku"],
-                    "style": p["style"],
-                    "s3_key": p["s3_key"],
-                    "note": "S3 image has been deleted"
+                    "id": r["product_id"],
+                    "style": r["style"],
+                    "provider": r["provider"],
+                    "keyword": r["keyword"],
+                    "rejected_at": r["created_at"],
+                    "note": "Product and S3 image deleted"
                 }
-                for p in products
+                for r in rejected
             ],
-            "total": len(products)
+            "total": len(rejected)
         }
         
     except Exception as e:
