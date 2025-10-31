@@ -3,20 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from loguru import logger
 import sys
-from app.api.v1 import admin
-
 
 from app.config import settings
 from app.database import db_pool
 from app.utils.cache import redis_client
-
-# Import routers
-from app.api.v1 import (
-    test, products, orders, trends, platforms, artwork,
-    analytics, analytics_detailed, generation, approval,
-    product_feedback, keyword_research
-)
-
 
 # Configure logging
 logger.remove()
@@ -25,19 +15,6 @@ logger.add(
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
     level="INFO"
 )
-
-async def run_migrations():
-    """Run pending database migrations"""
-    # Read and execute the migration
-    with open('scripts/add_feedback_table.sql', 'r') as f:
-        migration_sql = f.read()
-    
-    try:
-        await db_pool.execute(migration_sql)
-        logger.info("✅ Database migrations completed")
-    except Exception as e:
-        logger.error(f"❌ Migration error: {e}")
-        # Don't raise - allow app to continue even if migration fails
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -51,13 +28,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Failed to initialize database: {e}")
         raise
-    
-    # Run database migrations
-    try:
-        await run_migrations()
-    except Exception as e:
-        logger.error(f"❌ Failed to run migrations: {e}")
-        # Continue anyway - table might already exist
     
     # Initialize Redis (optional)
     try:
@@ -97,8 +67,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-
 # Health check endpoint
 @app.get("/health")
 async def health_check():
@@ -113,10 +81,20 @@ async def root():
     return {
         "message": "AI POD Platform API",
         "version": "1.0.0",
-        "docs": "/docs"
+        "docs": "/docs",
+        "health": "/health"
     }
 
+# Import routers
+from app.api.v1 import (
+    test, products, orders, trends, platforms, artwork,
+    analytics, analytics_detailed, generation, approval,
+    product_feedback, keyword_research, admin
+)
+
 # Include routers
+logger.info("📋 Registering API routes...")
+
 app.include_router(test.router, prefix=f"{settings.API_V1_PREFIX}/test", tags=["Test"])
 app.include_router(products.router, prefix=f"{settings.API_V1_PREFIX}/products", tags=["Products"])
 app.include_router(orders.router, prefix=f"{settings.API_V1_PREFIX}/orders", tags=["Orders"])
@@ -124,10 +102,33 @@ app.include_router(trends.router, prefix=f"{settings.API_V1_PREFIX}/trends", tag
 app.include_router(platforms.router, prefix=f"{settings.API_V1_PREFIX}/platforms", tags=["Platforms"])
 app.include_router(artwork.router, prefix=f"{settings.API_V1_PREFIX}/artwork", tags=["Artwork"])
 app.include_router(analytics.router, prefix=f"{settings.API_V1_PREFIX}/analytics", tags=["Analytics"])
-app.include_router(analytics_detailed.router, prefix=f"{settings.API_V1_PREFIX}/analytics-detailed", tags=["Analytics"])
+app.include_router(analytics_detailed.router, prefix=f"{settings.API_V1_PREFIX}/analytics-detailed", tags=["Analytics Detailed"])
 app.include_router(generation.router, prefix=f"{settings.API_V1_PREFIX}/generation", tags=["Generation"])
 app.include_router(approval.router, prefix=f"{settings.API_V1_PREFIX}/approval", tags=["Approval"])
 app.include_router(product_feedback.router, prefix=f"{settings.API_V1_PREFIX}/product-feedback", tags=["Feedback"])
 app.include_router(keyword_research.router, prefix=f"{settings.API_V1_PREFIX}/keyword-research", tags=["Keywords"])
-app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
+
 logger.info("✅ All routes registered")
+
+# Startup event to log all routes for debugging
+@app.on_event("startup")
+async def log_routes():
+    """Log all registered routes on startup"""
+    logger.info("=" * 60)
+    logger.info("📋 REGISTERED API ROUTES:")
+    logger.info("=" * 60)
+    
+    routes = []
+    for route in app.routes:
+        if hasattr(route, 'path') and hasattr(route, 'methods'):
+            for method in route.methods:
+                routes.append(f"{method:7} {route.path}")
+    
+    # Sort routes for better readability
+    for route in sorted(routes):
+        logger.info(f"   {route}")
+    
+    logger.info("=" * 60)
+    logger.info(f"✅ Total routes registered: {len(routes)}")
+    logger.info("=" * 60)
