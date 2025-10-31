@@ -14,21 +14,11 @@ router = APIRouter()
 @router.get("/image/{artwork_id}")
 async def get_product_image(
     artwork_id: int,
-    expiration: int = Query(3600, ge=300, le=86400),  # 5 min to 24 hours
+    expiration: int = Query(3600, ge=300, le=86400),
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
-    """
-    Get pre-signed URL for product image from S3
-    
-    Args:
-        artwork_id: Artwork ID
-        expiration: URL expiration in seconds (default: 1 hour)
-    
-    Returns:
-        Temporary URL to access the image from S3
-    """
+    """Get pre-signed URL for product image from S3"""
     try:
-        # Get artwork from database (image_url contains S3 key)
         artwork = await db_pool.fetchrow(
             "SELECT image_url FROM artwork WHERE id = $1",
             artwork_id
@@ -42,7 +32,6 @@ async def get_product_image(
         if not s3_key:
             raise HTTPException(status_code=404, detail="No image available for this artwork")
         
-        # Generate pre-signed URL from S3
         storage = get_storage_manager()
         url = storage.get_presigned_url(s3_key, expiration=expiration)
         
@@ -74,24 +63,13 @@ async def get_batch_product_images(
     expiration: int = Query(3600, ge=300, le=86400),
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
-    """
-    Get pre-signed URLs for multiple product images at once
-    
-    Args:
-        artwork_ids: Comma-separated list of artwork IDs (e.g., "1,2,3,4,5")
-        expiration: URL expiration in seconds
-        
-    Returns:
-        Dict mapping artwork_id to pre-signed URL
-    """
+    """Get pre-signed URLs for multiple product images at once"""
     try:
-        # Parse artwork IDs
         ids = [int(id.strip()) for id in artwork_ids.split(',')]
         
         if len(ids) > 100:
             raise HTTPException(status_code=400, detail="Maximum 100 artwork IDs per request")
         
-        # Get all artworks
         artworks = await db_pool.fetch(
             "SELECT id, image_url FROM artwork WHERE id = ANY($1)",
             ids
@@ -100,7 +78,6 @@ async def get_batch_product_images(
         if not artworks:
             return {"images": {}, "message": "No artworks found"}
         
-        # Generate pre-signed URLs
         storage = get_storage_manager()
         expires_at = datetime.utcnow() + timedelta(seconds=expiration)
         
@@ -129,6 +106,28 @@ async def get_batch_product_images(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def safe_parse_metadata(metadata):
+    """Safely parse metadata from database - handles both dict and string"""
+    if metadata is None:
+        return {}
+    
+    # If it's already a dict (JSONB from asyncpg), return it
+    if isinstance(metadata, dict):
+        return metadata
+    
+    # If it's a string, try to parse it
+    if isinstance(metadata, str):
+        try:
+            return json.loads(metadata)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning(f"Failed to parse metadata string: {metadata[:100]}")
+            return {}
+    
+    # Fallback
+    logger.warning(f"Unexpected metadata type: {type(metadata)}")
+    return {}
+
+
 @router.get("/")
 async def get_products(
     limit: int = Query(default=20, ge=1, le=100),
@@ -142,16 +141,10 @@ async def get_products(
     """
     Get products with optional filters and S3 image URLs
     
-    Query Parameters:
-        - limit: Number of products to return (1-100)
-        - offset: Pagination offset
-        - status: Filter by status (active, draft, approved, rejected)
-        - category: Filter by category
-        - search: Search in title and description
-        - include_images: If true, includes pre-signed S3 URLs
+    FIXED: Proper error handling and metadata parsing
     """
     try:
-        logger.info(f"Fetching products: limit={limit}, offset={offset}, status={status}, include_images={include_images}")
+        logger.info(f"📥 Fetching products: limit={limit}, offset={offset}, status={status}, include_images={include_images}")
         
         # Build query with filters
         conditions = []
@@ -201,7 +194,9 @@ async def get_products(
             LIMIT {limit_param} OFFSET {offset_param}
         """
         
+        logger.debug(f"Executing query with {len(params)} params")
         products = await db_pool.fetch(query, *params)
+        logger.info(f"✅ Fetched {len(products)} products from database")
         
         # Process products and optionally add S3 URLs
         products_list = []
@@ -209,15 +204,8 @@ async def get_products(
         
         for p in products:
             try:
-                # Parse metadata
-                metadata = p["metadata"]
-                if isinstance(metadata, str):
-                    try:
-                        metadata = json.loads(metadata)
-                    except json.JSONDecodeError:
-                        metadata = {}
-                elif metadata is None:
-                    metadata = {}
+                # ✅ FIX: Safely parse metadata (handles both dict and string)
+                metadata = safe_parse_metadata(p["metadata"])
                 
                 # Build artwork object
                 artwork = None
@@ -229,7 +217,7 @@ async def get_products(
                         "provider": p["provider"],
                         "quality_score": float(p["quality_score"]) if p["quality_score"] else 0,
                         "generation_cost": float(p["generation_cost"]) if p["generation_cost"] else 0,
-                        "model_used": metadata.get("model_key") if isinstance(metadata, dict) else None
+                        "model_used": metadata.get("model_key") if metadata else None
                     }
                     
                     # Add pre-signed URL if requested
@@ -239,6 +227,9 @@ async def get_products(
                             if presigned_url:
                                 artwork["image_url"] = presigned_url
                                 artwork["image_expires_at"] = (datetime.utcnow() + timedelta(seconds=3600)).isoformat()
+                            else:
+                                logger.warning(f"Failed to generate pre-signed URL for {p['s3_key']}")
+                                artwork["image_url"] = None
                         except Exception as img_error:
                             logger.warning(f"Failed to generate pre-signed URL for {p['s3_key']}: {img_error}")
                             artwork["image_url"] = None
@@ -249,7 +240,7 @@ async def get_products(
                     "sku": p["sku"],
                     "title": p["title"],
                     "description": p["description"],
-                    "base_price": float(p["base_price"]),
+                    "base_price": float(p["base_price"]) if p["base_price"] else 0,
                     "status": p["status"],
                     "category": p["category"],
                     "tags": p["tags"],
@@ -260,7 +251,8 @@ async def get_products(
                 products_list.append(product_obj)
                 
             except Exception as e:
-                logger.error(f"Error processing product {p['id']}: {e}")
+                logger.error(f"❌ Error processing product {p['id']}: {e}")
+                logger.exception("Full traceback:")
                 continue
         
         # Get total count for pagination
@@ -270,9 +262,13 @@ async def get_products(
             LEFT JOIN artwork a ON p.artwork_id = a.id
             {where_clause}
         """
-        total_count = await db_pool.fetchval(count_query, *params[:-2]) if params[:-2] else await db_pool.fetchval(count_query)
         
-        logger.info(f"Successfully fetched {len(products_list)} products (total: {total_count})")
+        if params[:-2]:  # If we have filter params (excluding limit and offset)
+            total_count = await db_pool.fetchval(count_query, *params[:-2])
+        else:
+            total_count = await db_pool.fetchval(count_query)
+        
+        logger.info(f"✅ Successfully processed {len(products_list)} products (total: {total_count})")
         
         return {
             "products": products_list,
@@ -283,7 +279,7 @@ async def get_products(
         }
         
     except Exception as e:
-        logger.error(f"Error fetching products: {e}")
+        logger.error(f"❌ Error fetching products: {e}")
         logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -317,15 +313,8 @@ async def get_product(
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
         
-        # Parse metadata
-        metadata = product["metadata"]
-        if isinstance(metadata, str):
-            try:
-                metadata = json.loads(metadata)
-            except json.JSONDecodeError:
-                metadata = {}
-        elif metadata is None:
-            metadata = {}
+        # ✅ FIX: Safely parse metadata
+        metadata = safe_parse_metadata(product["metadata"])
         
         # Build artwork object
         artwork = None
@@ -337,7 +326,7 @@ async def get_product(
                 "provider": product["provider"],
                 "quality_score": float(product["quality_score"]) if product["quality_score"] else 0,
                 "generation_cost": float(product["generation_cost"]) if product["generation_cost"] else 0,
-                "model_used": metadata.get("model_key") if isinstance(metadata, dict) else None
+                "model_used": metadata.get("model_key") if metadata else None
             }
             
             # Add pre-signed URL if requested
@@ -353,7 +342,7 @@ async def get_product(
             "sku": product["sku"],
             "title": product["title"],
             "description": product["description"],
-            "base_price": float(product["base_price"]),
+            "base_price": float(product["base_price"]) if product["base_price"] else 0,
             "status": product["status"],
             "category": product["category"],
             "tags": product["tags"],
@@ -365,6 +354,7 @@ async def get_product(
         raise
     except Exception as e:
         logger.error(f"Error fetching product: {e}")
+        logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -413,7 +403,6 @@ async def update_product(
 ):
     """Update a product"""
     try:
-        # Check if product exists
         exists = await db_pool.fetchval(
             "SELECT id FROM products WHERE id = $1",
             product_id
@@ -422,7 +411,6 @@ async def update_product(
         if not exists:
             raise HTTPException(status_code=404, detail="Product not found")
         
-        # Update product
         await db_pool.execute(
             """
             UPDATE products
@@ -465,7 +453,6 @@ async def delete_product(
 ):
     """Delete a product and optionally its S3 image"""
     try:
-        # Get product with artwork info
         product = await db_pool.fetchrow(
             """
             SELECT p.id, a.image_url as s3_key
@@ -479,7 +466,6 @@ async def delete_product(
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
         
-        # Delete from S3 if requested
         if delete_image and product["s3_key"]:
             storage = get_storage_manager()
             try:
@@ -488,7 +474,6 @@ async def delete_product(
             except Exception as s3_error:
                 logger.warning(f"Failed to delete S3 image: {s3_error}")
         
-        # Delete product from database
         await db_pool.execute(
             "DELETE FROM products WHERE id = $1",
             product_id
@@ -522,7 +507,6 @@ async def get_product_stats(
                 COUNT(*) FILTER (WHERE status = 'active') as active,
                 COUNT(*) FILTER (WHERE status = 'draft') as draft,
                 COUNT(*) FILTER (WHERE status = 'approved') as approved,
-                COUNT(*) FILTER (WHERE status = 'rejected') as rejected,
                 AVG(base_price) as avg_price,
                 COUNT(DISTINCT category) as total_categories
             FROM products
@@ -534,8 +518,7 @@ async def get_product_stats(
             "by_status": {
                 "active": stats["active"],
                 "draft": stats["draft"],
-                "approved": stats["approved"],
-                "rejected": stats["rejected"]
+                "approved": stats["approved"]
             },
             "avg_price": float(stats["avg_price"]) if stats["avg_price"] else 0,
             "total_categories": stats["total_categories"]
