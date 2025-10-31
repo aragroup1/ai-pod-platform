@@ -21,7 +21,7 @@ export default function FilterBar({ onFilterChange, products }: FilterBarProps) 
   const [searchTerm, setSearchTerm] = useState('');
   const [category, setCategory] = useState('all');
 
-  const categories = ['all', ...new Set(products.map(p => p.category).filter(Boolean))];
+  const categories = ['all', ...Array.from(new Set(products.map(p => p.category).filter(Boolean)))];
 
   useEffect(() => {
     onFilterChange({
@@ -47,7 +47,7 @@ export default function FilterBar({ onFilterChange, products }: FilterBarProps) 
         </SelectTrigger>
         <SelectContent>
           {categories.map(cat => (
-            <SelectItem key={cat} value={cat}>
+            <SelectItem key={cat} value={cat || 'all'}>
               {cat === 'all' ? 'All Categories' : cat}
             </SelectItem>
           ))}
