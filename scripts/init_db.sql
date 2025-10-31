@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS trends (
     keyword VARCHAR(255) NOT NULL,
     search_volume INTEGER DEFAULT 0,
     trend_score FLOAT DEFAULT 0.0,
-    geography VARCHAR(10) DEFAULT 'GB',
+    region VARCHAR(10) DEFAULT 'GB',
     category VARCHAR(100),
     created_at TIMESTAMP DEFAULT NOW(),
     data JSONB
