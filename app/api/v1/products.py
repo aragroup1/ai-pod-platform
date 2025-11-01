@@ -59,23 +59,23 @@ async def get_products(
 ):
     """Get list of products with optional filtering"""
     try:
-        # Build the base query
+        # FIXED: Use correct column names from your schema
         base_query = """
             SELECT 
                 p.id,
-                p.name,
+                p.title,
                 p.description,
-                p.price,
+                p.base_price,
                 p.category,
-                p.stock_quantity,
+                p.status,
                 p.created_at,
                 p.updated_at,
                 p.metadata,
                 a.id as artwork_id,
                 a.image_url,
-                a.prompt_text,
+                a.prompt,
                 a.style,
-                a.model_version
+                a.provider
             FROM products p
             LEFT JOIN artwork a ON p.artwork_id = a.id
             WHERE 1=1
@@ -91,17 +91,17 @@ async def get_products(
             param_index += 1
         
         if min_price is not None:
-            base_query += f" AND p.price >= ${param_index}"
+            base_query += f" AND p.base_price >= ${param_index}"
             params.append(min_price)
             param_index += 1
         
         if max_price is not None:
-            base_query += f" AND p.price <= ${param_index}"
+            base_query += f" AND p.base_price <= ${param_index}"
             params.append(max_price)
             param_index += 1
         
         if search:
-            base_query += f" AND (p.name ILIKE ${param_index} OR p.description ILIKE ${param_index})"
+            base_query += f" AND (p.title ILIKE ${param_index} OR p.description ILIKE ${param_index})"
             params.append(f"%{search}%")
             param_index += 1
         
@@ -128,65 +128,62 @@ async def get_products(
             count_param_index += 1
         
         if min_price is not None:
-            count_query += f" AND p.price >= ${count_param_index}"
+            count_query += f" AND p.base_price >= ${count_param_index}"
             count_params.append(min_price)
             count_param_index += 1
         
         if max_price is not None:
-            count_query += f" AND p.price <= ${count_param_index}"
+            count_query += f" AND p.base_price <= ${count_param_index}"
             count_params.append(max_price)
             count_param_index += 1
         
         if search:
-            count_query += f" AND (p.name ILIKE ${count_param_index} OR p.description ILIKE ${count_param_index})"
+            count_query += f" AND (p.title ILIKE ${count_param_index} OR p.description ILIKE ${count_param_index})"
             count_params.append(f"%{search}%")
         
         total_count = await db_pool.fetchval(count_query, *count_params)
         
-        # Format response - FIXED: Handle JSONB metadata properly
+        # Format response
         products = []
         storage = get_storage_manager()
         
         for row in rows:
             product_dict = dict(row)
             
-            # FIXED: metadata is already a dict from asyncpg JSONB, no need to parse
+            # Handle metadata (already a dict from asyncpg JSONB)
             metadata = product_dict.get('metadata')
             if metadata is None:
                 metadata = {}
-            # metadata is already a dict, don't try to json.loads() it
             
             # Generate pre-signed URL for image if available
             image_url = None
             if product_dict.get('image_url'):
                 try:
-                    # FIXED: Handle both S3 keys and full URLs
                     s3_key = product_dict['image_url']
-                    # If it's already a full URL, use it as-is
+                    # Handle both S3 keys and full URLs
                     if s3_key.startswith('http'):
                         image_url = s3_key
                     else:
-                        # Otherwise, generate pre-signed URL
                         image_url = storage.get_presigned_url(s3_key, expiration=3600)
                 except Exception as e:
                     logger.warning(f"Failed to generate image URL for product {product_dict['id']}: {str(e)}")
             
             product = {
                 "id": product_dict['id'],
-                "name": product_dict['name'],
+                "title": product_dict['title'],
                 "description": product_dict['description'],
-                "price": float(product_dict['price']),
+                "price": float(product_dict['base_price']),
                 "category": product_dict['category'],
-                "stock_quantity": product_dict['stock_quantity'],
+                "status": product_dict['status'],
                 "created_at": product_dict['created_at'].isoformat() if product_dict['created_at'] else None,
                 "updated_at": product_dict['updated_at'].isoformat() if product_dict['updated_at'] else None,
-                "metadata": metadata,  # Already a dict
+                "metadata": metadata,
                 "artwork": {
                     "id": product_dict.get('artwork_id'),
                     "image_url": image_url,
-                    "prompt_text": product_dict.get('prompt_text'),
+                    "prompt": product_dict.get('prompt'),
                     "style": product_dict.get('style'),
-                    "model_version": product_dict.get('model_version')
+                    "provider": product_dict.get('provider')
                 } if product_dict.get('artwork_id') else None
             }
             
@@ -201,6 +198,7 @@ async def get_products(
     
     except Exception as e:
         logger.error(f"Error fetching products: {str(e)}")
+        logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=f"Failed to fetch products: {str(e)}")
 
 
@@ -214,19 +212,19 @@ async def get_product(
         query = """
             SELECT 
                 p.id,
-                p.name,
+                p.title,
                 p.description,
-                p.price,
+                p.base_price,
                 p.category,
-                p.stock_quantity,
+                p.status,
                 p.created_at,
                 p.updated_at,
                 p.metadata,
                 a.id as artwork_id,
                 a.image_url,
-                a.prompt_text,
+                a.prompt,
                 a.style,
-                a.model_version
+                a.provider
             FROM products p
             LEFT JOIN artwork a ON p.artwork_id = a.id
             WHERE p.id = $1
@@ -239,7 +237,7 @@ async def get_product(
         
         product_dict = dict(row)
         
-        # FIXED: metadata is already a dict from asyncpg JSONB
+        # Handle metadata
         metadata = product_dict.get('metadata')
         if metadata is None:
             metadata = {}
@@ -250,7 +248,6 @@ async def get_product(
             try:
                 storage = get_storage_manager()
                 s3_key = product_dict['image_url']
-                # FIXED: Handle both S3 keys and full URLs
                 if s3_key.startswith('http'):
                     image_url = s3_key
                 else:
@@ -260,20 +257,20 @@ async def get_product(
         
         return {
             "id": product_dict['id'],
-            "name": product_dict['name'],
+            "title": product_dict['title'],
             "description": product_dict['description'],
-            "price": float(product_dict['price']),
+            "price": float(product_dict['base_price']),
             "category": product_dict['category'],
-            "stock_quantity": product_dict['stock_quantity'],
+            "status": product_dict['status'],
             "created_at": product_dict['created_at'].isoformat() if product_dict['created_at'] else None,
             "updated_at": product_dict['updated_at'].isoformat() if product_dict['updated_at'] else None,
-            "metadata": metadata,  # Already a dict
+            "metadata": metadata,
             "artwork": {
                 "id": product_dict.get('artwork_id'),
                 "image_url": image_url,
-                "prompt_text": product_dict.get('prompt_text'),
+                "prompt": product_dict.get('prompt'),
                 "style": product_dict.get('style'),
-                "model_version": product_dict.get('model_version')
+                "provider": product_dict.get('provider')
             } if product_dict.get('artwork_id') else None
         }
     
@@ -281,4 +278,5 @@ async def get_product(
         raise
     except Exception as e:
         logger.error(f"Error fetching product {product_id}: {str(e)}")
+        logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=f"Failed to fetch product: {str(e)}")
