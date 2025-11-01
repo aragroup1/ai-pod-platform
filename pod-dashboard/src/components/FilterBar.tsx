@@ -46,8 +46,8 @@ export default function FilterBar({ onFilterChange, products }: FilterBarProps) 
           <SelectValue placeholder="Category" />
         </SelectTrigger>
         <SelectContent>
-          {categories.map(cat => (
-            <SelectItem key={cat} value={cat || 'all'}>
+          {categories.map((cat, index) => (
+            <SelectItem key={`category-${cat || 'all'}-${index}`} value={cat || 'all'}>
               {cat === 'all' ? 'All Categories' : cat}
             </SelectItem>
           ))}
