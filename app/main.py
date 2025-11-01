@@ -110,25 +110,3 @@ app.include_router(keyword_research.router, prefix=f"{settings.API_V1_PREFIX}/ke
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 
 logger.info("✅ All routes registered")
-
-# Startup event to log all routes for debugging
-@app.on_event("startup")
-async def log_routes():
-    """Log all registered routes on startup"""
-    logger.info("=" * 60)
-    logger.info("📋 REGISTERED API ROUTES:")
-    logger.info("=" * 60)
-    
-    routes = []
-    for route in app.routes:
-        if hasattr(route, 'path') and hasattr(route, 'methods'):
-            for method in route.methods:
-                routes.append(f"{method:7} {route.path}")
-    
-    # Sort routes for better readability
-    for route in sorted(routes):
-        logger.info(f"   {route}")
-    
-    logger.info("=" * 60)
-    logger.info(f"✅ Total routes registered: {len(routes)}")
-    logger.info("=" * 60)
