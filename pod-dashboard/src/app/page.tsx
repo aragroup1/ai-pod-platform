@@ -7,13 +7,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { TrendingUp, Rocket, RefreshCw, Grid3x3 } from 'lucide-react';
 
+// FIXED: Use correct backend URL
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app/api/v1';
+
 interface Product {
   id: string;
   title: string;
-  image_url: string;
+  image_url?: string;
   price: number;
   category?: string;
   tags?: string[];
+  artwork?: {
+    id: number;
+    image_url: string;
+  };
 }
 
 interface GenStatus {
@@ -35,15 +42,41 @@ export default function Home() {
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app/api/v1';
-      const response = await fetch(`${API_URL}/products`);  // ✅ CORRECT
-      if (!response.ok) throw new Error('Failed to fetch products');
+      setError(null);
+      
+      // FIXED: Use backend URL
+      const response = await fetch(`${API_BASE_URL}/products`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
-      const visibleProducts = data.filter((p: Product) => !hiddenProductsRef.current.has(p.id));
+      
+      // FIXED: Handle both array and object with products property
+      let productsArray: Product[] = [];
+      
+      if (Array.isArray(data)) {
+        productsArray = data;
+      } else if (data.products && Array.isArray(data.products)) {
+        productsArray = data.products;
+      } else {
+        console.error('Unexpected API response format:', data);
+        throw new Error('Invalid API response format');
+      }
+      
+      // Filter out hidden products
+      const visibleProducts = productsArray.filter((p: Product) => 
+        !hiddenProductsRef.current.has(String(p.id))
+      );
+      
       setProducts(visibleProducts);
       setFilteredProducts(visibleProducts);
+      
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load products');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load products';
+      console.error('Fetch error:', err);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -51,7 +84,9 @@ export default function Home() {
 
   const fetchGenStatus = async () => {
     try {
-      const response = await fetch('/api/generation/status');
+      // FIXED: Use backend URL
+      const response = await fetch(`${API_BASE_URL}/generation/status`);
+      
       if (response.ok) {
         const data = await response.json();
         setGenStatus(data);
@@ -64,32 +99,42 @@ export default function Home() {
   useEffect(() => {
     fetchProducts();
     fetchGenStatus();
+    
     const interval = setInterval(fetchGenStatus, 30000);
     return () => clearInterval(interval);
   }, []);
 
   const handleFeedback = async (productId: string, feedback: 'approved' | 'rejected') => {
     try {
-      const response = await fetch('/api/products/feedback', {
+      // FIXED: Use backend URL
+      const response = await fetch(`${API_BASE_URL}/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId, feedback }),
+        body: JSON.stringify({ product_id: parseInt(productId), action: feedback }),
       });
 
-      if (!response.ok) throw new Error('Failed to submit feedback');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to submit feedback');
+      }
 
       if (feedback === 'rejected') {
+        // Immediately hide the product
         hiddenProductsRef.current.add(productId);
-        setProducts(prev => prev.filter(p => p.id !== productId));
-        setFilteredProducts(prev => prev.filter(p => p.id !== productId));
+        setProducts(prev => prev.filter(p => String(p.id) !== productId));
+        setFilteredProducts(prev => prev.filter(p => String(p.id) !== productId));
       }
     } catch (err) {
       console.error('Feedback error:', err);
-      alert('Failed to submit feedback');
+      alert(`Failed to submit feedback: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
-  const handleFilterChange = (filters: { category?: string; priceRange?: [number, number]; searchTerm?: string }) => {
+  const handleFilterChange = (filters: { 
+    category?: string; 
+    priceRange?: [number, number]; 
+    searchTerm?: string 
+  }) => {
     let filtered = [...products];
 
     if (filters.category && filters.category !== 'all') {
@@ -97,13 +142,15 @@ export default function Home() {
     }
 
     if (filters.priceRange) {
-      filtered = filtered.filter(p => p.price >= filters.priceRange![0] && p.price <= filters.priceRange![1]);
+      filtered = filtered.filter(p => 
+        p.price >= filters.priceRange![0] && p.price <= filters.priceRange![1]
+      );
     }
 
     if (filters.searchTerm) {
       const term = filters.searchTerm.toLowerCase();
       filtered = filtered.filter(p =>
-        p.title.toLowerCase().includes(term) ||
+        p.title?.toLowerCase().includes(term) ||
         p.tags?.some(tag => tag.toLowerCase().includes(term))
       );
     }
@@ -116,12 +163,19 @@ export default function Home() {
     
     setIsLoadingKeywords(true);
     try {
-      const response = await fetch('/api/keywords/load', { method: 'POST' });
+      // FIXED: Use backend URL
+      const response = await fetch(`${API_BASE_URL}/admin/load-keywords`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
       const result = await response.json();
       
-      if (!response.ok) throw new Error(result.error || 'Failed to load keywords');
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to load keywords');
+      }
       
-      alert(`Success! Loaded ${result.inserted} keywords across ${result.categories} categories.`);
+      alert(`Success! Loaded ${result.keywords_loaded || result.inserted} keywords.`);
       fetchProducts();
       fetchGenStatus();
     } catch (err) {
@@ -136,12 +190,19 @@ export default function Home() {
     
     setIsLaunching10K(true);
     try {
-      const response = await fetch('/api/keywords/launch-10k', { method: 'POST' });
+      // FIXED: Use backend URL
+      const response = await fetch(`${API_BASE_URL}/trends/fetch-10k-initial`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
       const result = await response.json();
       
-      if (!response.ok) throw new Error(result.error || 'Failed to launch 10K');
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to launch 10K');
+      }
       
-      alert(`Success! Loaded ${result.inserted} keywords. Generating ~10,000 designs.`);
+      alert(`Success! Loaded ${result.keywords_stored || result.inserted} keywords. Generating ~10,000 designs.`);
       fetchProducts();
       fetchGenStatus();
     } catch (err) {
@@ -160,7 +221,21 @@ export default function Home() {
   }
 
   if (error) {
-    return <div className="text-red-500 p-4">Error: {error}</div>;
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+          <h2 className="text-xl font-semibold text-red-800 mb-2">Error Loading Dashboard</h2>
+          <p className="text-red-600 mb-4">{error}</p>
+          <div className="text-sm text-gray-600 mb-4">
+            <p>Backend URL: {API_BASE_URL}</p>
+          </div>
+          <Button onClick={fetchProducts} variant="outline">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -176,7 +251,7 @@ export default function Home() {
         </Button>
       </div>
 
-      {/* Keyword & Launch Section - Always visible */}
+      {/* Keyword & Launch Section */}
       {!showGallery && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* Load Keywords Card */}
@@ -283,14 +358,23 @@ export default function Home() {
             {filteredProducts.map(product => (
               <ProductCard
                 key={product.id}
-                product={product}
+                product={{
+                  id: String(product.id),
+                  title: product.title,
+                  image_url: product.artwork?.image_url || product.image_url || '',
+                  price: product.price,
+                  category: product.category,
+                  tags: product.tags
+                }}
                 onFeedback={handleFeedback}
               />
             ))}
           </div>
           
           {filteredProducts.length === 0 && (
-            <div className="text-center py-12 text-gray-500">No products match your filters</div>
+            <div className="text-center py-12 text-gray-500">
+              {products.length === 0 ? 'No products yet. Load keywords to generate products!' : 'No products match your filters'}
+            </div>
           )}
         </>
       )}
