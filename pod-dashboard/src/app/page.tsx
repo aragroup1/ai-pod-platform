@@ -35,7 +35,8 @@ export default function Home() {
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/products');
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app/api/v1';
+      const response = await fetch(`${API_URL}/products`);  // ✅ CORRECT
       if (!response.ok) throw new Error('Failed to fetch products');
       const data = await response.json();
       const visibleProducts = data.filter((p: Product) => !hiddenProductsRef.current.has(p.id));
