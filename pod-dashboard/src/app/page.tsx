@@ -1,4 +1,3 @@
-// pod-dashboard/src/app/page.tsx
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
@@ -78,7 +77,7 @@ export default function DashboardPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
   
-  // ✨ CRITICAL FIX: Track hidden products across refreshes using useRef
+  // Track hidden products across refreshes using useRef
   const hiddenProductIds = useRef<Set<number>>(new Set());
   
   // Generation settings
@@ -88,7 +87,8 @@ export default function DashboardPage() {
   const [dailyGenerationTarget, setDailyGenerationTarget] = useState(100);
   const [autoGeneration, setAutoGeneration] = useState(false);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app';
+  // Fixed: API_URL already includes /api/v1 from environment variable
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app/api/v1';
 
   // Fetch dashboard data
   const fetchData = async () => {
@@ -102,11 +102,12 @@ export default function DashboardPage() {
       setLoading(true);
       setError(null);
 
+      // Fixed: Don't add /api/v1 again since it's already in API_URL
       const [statsResponse, productsResponse, genStatusResponse, analyticsResponse] = await Promise.all([
-        fetch(`${API_URL}/api/v1/analytics/dashboard`).catch(() => null),
-        fetch(`${API_URL}/api/v1/products/?limit=100&status=active&include_images=true`),
-        fetch(`${API_URL}/api/v1/generation/status`).catch(() => null),
-        fetch(`${API_URL}/api/v1/trends/analytics`).catch(() => null)
+        fetch(`${API_URL}/analytics/dashboard`).catch(() => null),
+        fetch(`${API_URL}/products/?limit=100&status=active&include_images=true`),
+        fetch(`${API_URL}/generation/status`).catch(() => null),
+        fetch(`${API_URL}/trends/analytics`).catch(() => null)
       ]);
 
       if (statsResponse?.ok) {
@@ -122,7 +123,7 @@ export default function DashboardPage() {
       if (productsResponse?.ok) {
         const productsData = await productsResponse.json();
         
-        // ✨ CRITICAL FIX: Filter out hidden products IMMEDIATELY on every fetch
+        // Filter out hidden products IMMEDIATELY on every fetch
         const visibleProducts = (productsData.products || []).filter(
           (p: Product) => p.status !== 'rejected' && !hiddenProductIds.current.has(p.id)
         );
@@ -146,7 +147,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✨ FIXED: Approve product with permanent hiding
+  // Approve product with permanent hiding
   const approveProduct = async (productId: number) => {
     try {
       // Add to hidden list IMMEDIATELY to prevent flicker
@@ -155,7 +156,7 @@ export default function DashboardPage() {
       // Optimistically remove from UI
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
       
-      const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
+      const response = await fetch(`${API_URL}/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -180,7 +181,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✨ FIXED: Reject product with permanent hiding
+  // Reject product with permanent hiding
   const rejectProduct = async (productId: number) => {
     try {
       // Add to hidden list IMMEDIATELY to prevent flicker
@@ -189,7 +190,7 @@ export default function DashboardPage() {
       // Optimistically remove from UI
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
       
-      const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
+      const response = await fetch(`${API_URL}/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -221,7 +222,7 @@ export default function DashboardPage() {
     toast.info("🚀 Launching 10K initial keyword strategy...");
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/trends/fetch-10k-initial`, {
+      const response = await fetch(`${API_URL}/trends/fetch-10k-initial`, {
         method: 'POST'
       });
 
@@ -231,13 +232,7 @@ export default function DashboardPage() {
       
       if (data.success) {
         toast.success(
-          <div>
-            <strong>10K Strategy Launched!</strong>
-            <br />
-            {data.keywords_stored} keywords stored
-            <br />
-            Total designs: {data.total_designs_planned}
-          </div>,
+          `10K Strategy Launched! ${data.keywords_stored} keywords stored. Total designs: ${data.total_designs_planned}`,
           { duration: 10000 }
         );
         
@@ -260,7 +255,7 @@ export default function DashboardPage() {
     toast.info("🔍 Fetching trending keywords...");
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/trends/fetch?region=GB&limit=20`, {
+      const response = await fetch(`${API_URL}/trends/fetch?region=GB&limit=20`, {
         method: 'POST'
       });
 
@@ -309,7 +304,7 @@ export default function DashboardPage() {
     toast.info(`Starting generation: ${trendsCount * 8} products (${modeLabel} mode)...`);
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/generation/batch-generate`, {
+      const response = await fetch(`${API_URL}/generation/batch-generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -367,7 +362,7 @@ export default function DashboardPage() {
     );
   }
 
-  // ✨ Filter visible products using the hidden products ref
+  // Filter visible products using the hidden products ref
   const visibleProducts = recentProducts.filter(p => !hiddenProductIds.current.has(p.id));
   const productsWithImages = visibleProducts.filter(p => p.artwork?.image_url);
   const dailyCalc = calculateDailyGeneration();
