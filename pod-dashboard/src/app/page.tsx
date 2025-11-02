@@ -102,16 +102,38 @@ export default function DashboardPage() {
       setLoading(true);
       setError(null);
 
+      console.log('Fetching from API URL:', API_URL);
+
       // Fixed: Don't add /api/v1 again since it's already in API_URL
       const [statsResponse, productsResponse, genStatusResponse, analyticsResponse] = await Promise.all([
-        fetch(`${API_URL}/analytics/dashboard`).catch(() => null),
-        fetch(`${API_URL}/products/?limit=100&status=active&include_images=true`),
-        fetch(`${API_URL}/generation/status`).catch(() => null),
-        fetch(`${API_URL}/trends/analytics`).catch(() => null)
+        fetch(`${API_URL}/analytics/dashboard`).catch(err => {
+          console.error('Stats fetch failed:', err);
+          return null;
+        }),
+        fetch(`${API_URL}/products/?limit=100&status=active&include_images=true`).catch(err => {
+          console.error('Products fetch failed:', err);
+          throw err; // Products are critical, so throw
+        }),
+        fetch(`${API_URL}/generation/status`).catch(err => {
+          console.error('Gen status fetch failed:', err);
+          return null;
+        }),
+        fetch(`${API_URL}/trends/analytics`).catch(err => {
+          console.error('Analytics fetch failed:', err);
+          return null;
+        })
       ]);
+
+      console.log('Responses received:', {
+        stats: statsResponse?.status,
+        products: productsResponse?.status,
+        genStatus: genStatusResponse?.status,
+        analytics: analyticsResponse?.status
+      });
 
       if (statsResponse?.ok) {
         const statsData = await statsResponse.json();
+        console.log('Stats data:', statsData);
         setStats({
           revenue: statsData.revenue || 0,
           orders: statsData.orders || 0,
@@ -122,21 +144,30 @@ export default function DashboardPage() {
       
       if (productsResponse?.ok) {
         const productsData = await productsResponse.json();
+        console.log('Products response:', productsData);
+        console.log('Products array length:', productsData.products?.length);
         
         // Filter out hidden products IMMEDIATELY on every fetch
         const visibleProducts = (productsData.products || []).filter(
           (p: Product) => p.status !== 'rejected' && !hiddenProductIds.current.has(p.id)
         );
         
+        console.log('Visible products after filter:', visibleProducts.length);
         setRecentProducts(visibleProducts);
+      } else {
+        console.error('Products response not OK:', productsResponse?.status, productsResponse?.statusText);
       }
       
       if (genStatusResponse?.ok) {
-        setGenStatus(await genStatusResponse.json());
+        const genData = await genStatusResponse.json();
+        console.log('Gen status:', genData);
+        setGenStatus(genData);
       }
       
       if (analyticsResponse?.ok) {
-        setTrendAnalytics(await analyticsResponse.json());
+        const analyticsData = await analyticsResponse.json();
+        console.log('Analytics:', analyticsData);
+        setTrendAnalytics(analyticsData);
       }
 
     } catch (err: any) {
