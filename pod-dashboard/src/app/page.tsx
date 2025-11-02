@@ -84,7 +84,7 @@ export default function DashboardPage() {
   const [dailyGenerationTarget, setDailyGenerationTarget] = useState(100);
   const [autoGeneration, setAutoGeneration] = useState(false);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app';
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app/api/v1';
 
   // Fetch dashboard data
   const fetchData = async () => {
@@ -99,10 +99,10 @@ export default function DashboardPage() {
       setError(null);
 
       const [statsResponse, productsResponse, genStatusResponse, analyticsResponse] = await Promise.all([
-        fetch(`${API_URL}/api/v1/analytics/dashboard`).catch(() => null),
-        fetch(`${API_URL}/api/v1/products/?limit=100&status=active&include_images=true`),
-        fetch(`${API_URL}/api/v1/generation/status`).catch(() => null),
-        fetch(`${API_URL}/api/v1/trends/analytics`).catch(() => null)
+        fetch(`${API_URL}/analytics/dashboard`).catch(() => null),
+        fetch(`${API_URL}/products/?limit=100&status=active&include_images=true`),
+        fetch(`${API_URL}/generation/status`).catch(() => null),
+        fetch(`${API_URL}/trends/analytics`).catch(() => null)
       ]);
 
       if (statsResponse?.ok) {
@@ -143,7 +143,7 @@ export default function DashboardPage() {
   // ✅ FIXED: Approve product - no automatic refetch
   const approveProduct = async (productId: number) => {
     try {
-      const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
+      const response = await fetch(`${API_URL}/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -169,7 +169,7 @@ export default function DashboardPage() {
   // ✅ FIXED: Reject product - no automatic refetch to avoid race condition
   const rejectProduct = async (productId: number) => {
     try {
-      const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
+      const response = await fetch(`${API_URL}/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -199,7 +199,7 @@ export default function DashboardPage() {
     toast.info("🚀 Launching 10K initial keyword strategy...");
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/trends/fetch-10k-initial`, {
+      const response = await fetch(`${API_URL}/trends/fetch-10k-initial`, {
         method: 'POST'
       });
 
@@ -232,7 +232,7 @@ export default function DashboardPage() {
     toast.info("🔍 Fetching trending keywords...");
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/trends/fetch?region=GB&limit=20`, {
+      const response = await fetch(`${API_URL}/trends/fetch?region=GB&limit=20`, {
         method: 'POST'
       });
 
@@ -281,7 +281,7 @@ export default function DashboardPage() {
     toast.info(`Starting generation: ${trendsCount * 8} products (${modeLabel} mode)...`);
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/generation/batch-generate`, {
+      const response = await fetch(`${API_URL}/generation/batch-generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
