@@ -1,6 +1,7 @@
+// pod-dashboard/src/app/page.tsx
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -77,6 +78,9 @@ export default function DashboardPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
   
+  // ✨ CRITICAL FIX: Track hidden products across refreshes using useRef
+  const hiddenProductIds = useRef<Set<number>>(new Set());
+  
   // Generation settings
   const [budgetMode, setBudgetMode] = useState<'cheap' | 'balanced' | 'quality'>('balanced');
   const [testingMode, setTestingMode] = useState(true);
@@ -84,7 +88,7 @@ export default function DashboardPage() {
   const [dailyGenerationTarget, setDailyGenerationTarget] = useState(100);
   const [autoGeneration, setAutoGeneration] = useState(false);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app/api/v1';
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app';
 
   // Fetch dashboard data
   const fetchData = async () => {
@@ -99,10 +103,10 @@ export default function DashboardPage() {
       setError(null);
 
       const [statsResponse, productsResponse, genStatusResponse, analyticsResponse] = await Promise.all([
-        fetch(`${API_URL}/analytics/dashboard`).catch(() => null),
-        fetch(`${API_URL}/products/?limit=100&status=active&include_images=true`),
-        fetch(`${API_URL}/generation/status`).catch(() => null),
-        fetch(`${API_URL}/trends/analytics`).catch(() => null)
+        fetch(`${API_URL}/api/v1/analytics/dashboard`).catch(() => null),
+        fetch(`${API_URL}/api/v1/products/?limit=100&status=active&include_images=true`),
+        fetch(`${API_URL}/api/v1/generation/status`).catch(() => null),
+        fetch(`${API_URL}/api/v1/trends/analytics`).catch(() => null)
       ]);
 
       if (statsResponse?.ok) {
@@ -117,11 +121,13 @@ export default function DashboardPage() {
       
       if (productsResponse?.ok) {
         const productsData = await productsResponse.json();
-        // Filter out rejected products so they don't reappear in gallery
-        const activeProducts = (productsData.products || []).filter(
-          (p: Product) => p.status !== 'rejected'
+        
+        // ✨ CRITICAL FIX: Filter out hidden products IMMEDIATELY on every fetch
+        const visibleProducts = (productsData.products || []).filter(
+          (p: Product) => p.status !== 'rejected' && !hiddenProductIds.current.has(p.id)
         );
-        setRecentProducts(activeProducts);
+        
+        setRecentProducts(visibleProducts);
       }
       
       if (genStatusResponse?.ok) {
@@ -140,10 +146,16 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ FIXED: Approve product - no automatic refetch
+  // ✨ FIXED: Approve product with permanent hiding
   const approveProduct = async (productId: number) => {
     try {
-      const response = await fetch(`${API_URL}/product-feedback/feedback`, {
+      // Add to hidden list IMMEDIATELY to prevent flicker
+      hiddenProductIds.current.add(productId);
+      
+      // Optimistically remove from UI
+      setRecentProducts(prev => prev.filter(p => p.id !== productId));
+      
+      const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -152,24 +164,32 @@ export default function DashboardPage() {
         })
       });
 
-      if (!response.ok) throw new Error('Approval failed');
+      if (!response.ok) {
+        // If API call failed, remove from hidden set and refetch
+        hiddenProductIds.current.delete(productId);
+        await fetchData();
+        throw new Error('Approval failed');
+      }
 
       toast.success(`Product approved for Shopify!`, {
         icon: <Check className="h-4 w-4" />
       });
-      
-      // Remove from gallery immediately
-      setRecentProducts(prev => prev.filter(p => p.id !== productId));
       
     } catch (err: any) {
       toast.error(`Approval failed: ${err.message}`);
     }
   };
 
-  // ✅ FIXED: Reject product - no automatic refetch to avoid race condition
+  // ✨ FIXED: Reject product with permanent hiding
   const rejectProduct = async (productId: number) => {
     try {
-      const response = await fetch(`${API_URL}/product-feedback/feedback`, {
+      // Add to hidden list IMMEDIATELY to prevent flicker
+      hiddenProductIds.current.add(productId);
+      
+      // Optimistically remove from UI
+      setRecentProducts(prev => prev.filter(p => p.id !== productId));
+      
+      const response = await fetch(`${API_URL}/api/v1/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -178,10 +198,12 @@ export default function DashboardPage() {
         })
       });
 
-      if (!response.ok) throw new Error('Rejection failed');
-
-      // Remove from UI immediately
-      setRecentProducts(prev => prev.filter(p => p.id !== productId));
+      if (!response.ok) {
+        // If API call failed, remove from hidden set and refetch
+        hiddenProductIds.current.delete(productId);
+        await fetchData();
+        throw new Error('Rejection failed');
+      }
       
       toast.success(`Product rejected and deleted from S3`, {
         icon: <ThumbsDown className="h-4 w-4" />
@@ -199,7 +221,7 @@ export default function DashboardPage() {
     toast.info("🚀 Launching 10K initial keyword strategy...");
 
     try {
-      const response = await fetch(`${API_URL}/trends/fetch-10k-initial`, {
+      const response = await fetch(`${API_URL}/api/v1/trends/fetch-10k-initial`, {
         method: 'POST'
       });
 
@@ -209,7 +231,13 @@ export default function DashboardPage() {
       
       if (data.success) {
         toast.success(
-          `10K Strategy Launched! ${data.keywords_stored} keywords stored. Total designs: ${data.total_designs_planned}`,
+          <div>
+            <strong>10K Strategy Launched!</strong>
+            <br />
+            {data.keywords_stored} keywords stored
+            <br />
+            Total designs: {data.total_designs_planned}
+          </div>,
           { duration: 10000 }
         );
         
@@ -232,7 +260,7 @@ export default function DashboardPage() {
     toast.info("🔍 Fetching trending keywords...");
 
     try {
-      const response = await fetch(`${API_URL}/trends/fetch?region=GB&limit=20`, {
+      const response = await fetch(`${API_URL}/api/v1/trends/fetch?region=GB&limit=20`, {
         method: 'POST'
       });
 
@@ -281,7 +309,7 @@ export default function DashboardPage() {
     toast.info(`Starting generation: ${trendsCount * 8} products (${modeLabel} mode)...`);
 
     try {
-      const response = await fetch(`${API_URL}/generation/batch-generate`, {
+      const response = await fetch(`${API_URL}/api/v1/generation/batch-generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -339,7 +367,9 @@ export default function DashboardPage() {
     );
   }
 
-  const productsWithImages = recentProducts.filter(p => p.artwork?.image_url);
+  // ✨ Filter visible products using the hidden products ref
+  const visibleProducts = recentProducts.filter(p => !hiddenProductIds.current.has(p.id));
+  const productsWithImages = visibleProducts.filter(p => p.artwork?.image_url);
   const dailyCalc = calculateDailyGeneration();
 
   const progressData = [
