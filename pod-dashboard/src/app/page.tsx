@@ -87,8 +87,8 @@ export default function DashboardPage() {
   const [dailyGenerationTarget, setDailyGenerationTarget] = useState(100);
   const [autoGeneration, setAutoGeneration] = useState(false);
 
-  // Fixed: API_URL already includes /api/v1 from environment variable
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend-production-7aae.up.railway.app/api/v1';
+  // TEMPORARY FIX: Hardcoded HTTPS URL until environment variable is properly picked up
+  const API_URL = 'https://backend-production-7aae.up.railway.app/api/v1';
 
   // Fetch dashboard data
   const fetchData = async () => {
