@@ -9,7 +9,9 @@ from app.utils.cache import cache_result
 
 class AnalyticsEngine:
     """Comprehensive business analytics and intelligence"""
-
+ def __init__(self, db_pool):
+        self.db_pool = db_pool
+     
     @cache_result(ttl=60) # Cache dashboard results for 1 minute
     async def get_dashboard_metrics(
         self,
