@@ -12,6 +12,9 @@ import {
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 
+// CRITICAL: Hardcoded HTTPS URL - no environment variables
+const API_BASE_URL = 'https://backend-production-7aae.up.railway.app/api/v1';
+
 // Interfaces
 interface DashboardStats {
   revenue: number;
@@ -77,10 +80,8 @@ export default function DashboardPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
   
-  // Track hidden products across refreshes using useRef
   const hiddenProductIds = useRef<Set<number>>(new Set());
   
-  // Generation settings
   const [budgetMode, setBudgetMode] = useState<'cheap' | 'balanced' | 'quality'>('balanced');
   const [testingMode, setTestingMode] = useState(true);
   const [trendsToGenerate, setTrendsToGenerate] = useState(10);
@@ -89,50 +90,35 @@ export default function DashboardPage() {
 
   // Fetch dashboard data
   const fetchData = async () => {
-    // Define API_URL here
-    const API_URL = 'https://backend-production-7aae.up.railway.app/api/v1';
-    
-    if (!API_URL) {
-      setError("API URL not configured");
-      setLoading(false);
-      return;
-    }
+    console.log('🔍 Fetching from API:', API_BASE_URL);
 
     try {
       setLoading(true);
       setError(null);
 
-      console.log('Fetching from API URL:', API_URL);
-
       const [statsResponse, productsResponse, genStatusResponse, analyticsResponse] = await Promise.all([
-        fetch(`${API_URL}/analytics/dashboard`).catch(err => {
+        fetch(`${API_BASE_URL}/analytics/dashboard`).catch(err => {
           console.error('Stats fetch failed:', err);
           return null;
         }),
-        fetch(`${API_URL}/products/?limit=100&status=active&include_images=true`).catch(err => {
+        fetch(`${API_BASE_URL}/products/?limit=100&status=active&include_images=true`).catch(err => {
           console.error('Products fetch failed:', err);
           throw err;
         }),
-        fetch(`${API_URL}/generation/status`).catch(err => {
+        fetch(`${API_BASE_URL}/generation/status`).catch(err => {
           console.error('Gen status fetch failed:', err);
           return null;
         }),
-        fetch(`${API_URL}/trends/analytics`).catch(err => {
+        fetch(`${API_BASE_URL}/trends/analytics`).catch(err => {
           console.error('Analytics fetch failed:', err);
           return null;
         })
       ]);
 
-      console.log('Responses received:', {
-        stats: statsResponse?.status,
-        products: productsResponse?.status,
-        genStatus: genStatusResponse?.status,
-        analytics: analyticsResponse?.status
-      });
+      console.log('✅ Responses received');
 
       if (statsResponse?.ok) {
         const statsData = await statsResponse.json();
-        console.log('Stats data:', statsData);
         setStats({
           revenue: statsData.revenue || 0,
           orders: statsData.orders || 0,
@@ -143,55 +129,39 @@ export default function DashboardPage() {
       
       if (productsResponse?.ok) {
         const productsData = await productsResponse.json();
-        console.log('Products response:', productsData);
-        console.log('Products array length:', productsData.products?.length);
-        
-        // Filter out hidden products AND approved products
         const visibleProducts = (productsData.products || []).filter(
           (p: Product) => 
             p.status !== 'rejected' && 
-            p.status !== 'approved' &&  // Don't show approved products
+            p.status !== 'approved' &&
             !hiddenProductIds.current.has(p.id)
         );
-        
-        console.log('Visible products after filter:', visibleProducts.length);
         setRecentProducts(visibleProducts);
-      } else {
-        console.error('Products response not OK:', productsResponse?.status, productsResponse?.statusText);
       }
       
       if (genStatusResponse?.ok) {
         const genData = await genStatusResponse.json();
-        console.log('Gen status:', genData);
         setGenStatus(genData);
       }
       
       if (analyticsResponse?.ok) {
         const analyticsData = await analyticsResponse.json();
-        console.log('Analytics:', analyticsData);
         setTrendAnalytics(analyticsData);
       }
 
     } catch (err: any) {
-      console.error("Fetch error:", err);
+      console.error("❌ Fetch error:", err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Approve product with permanent hiding
   const approveProduct = async (productId: number) => {
-
-    
     try {
-      // Add to hidden list IMMEDIATELY to prevent flicker
       hiddenProductIds.current.add(productId);
-      
-      // Optimistically remove from UI
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
       
-      const response = await fetch(`${API_URL}/product-feedback/feedback`, {
+      const response = await fetch(`${API_BASE_URL}/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -201,7 +171,6 @@ export default function DashboardPage() {
       });
 
       if (!response.ok) {
-        // If API call failed, remove from hidden set and refetch
         hiddenProductIds.current.delete(productId);
         await fetchData();
         throw new Error('Approval failed');
@@ -216,18 +185,12 @@ export default function DashboardPage() {
     }
   };
 
-  // Reject product with permanent hiding
   const rejectProduct = async (productId: number) => {
-    const API_URL = 'https://backend-production-7aae.up.railway.app/api/v1';
-    
     try {
-      // Add to hidden list IMMEDIATELY to prevent flicker
       hiddenProductIds.current.add(productId);
-      
-      // Optimistically remove from UI
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
       
-      const response = await fetch(`${API_URL}/product-feedback/feedback`, {
+      const response = await fetch(`${API_BASE_URL}/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -237,7 +200,6 @@ export default function DashboardPage() {
       });
 
       if (!response.ok) {
-        // If API call failed, remove from hidden set and refetch
         hiddenProductIds.current.delete(productId);
         await fetchData();
         throw new Error('Rejection failed');
@@ -253,15 +215,11 @@ export default function DashboardPage() {
   };
 
   const launch10KInitial = async () => {
-    const API_URL = 'https://backend-production-7aae.up.railway.app/api/v1';
-    
-    if (!API_URL) return;
-
     setIsLaunching10K(true);
     toast.info("🚀 Launching 10K initial keyword strategy...");
 
     try {
-      const response = await fetch(`${API_URL}/trends/fetch-10k-initial`, {
+      const response = await fetch(`${API_BASE_URL}/trends/fetch-10k-initial`, {
         method: 'POST'
       });
 
@@ -274,7 +232,6 @@ export default function DashboardPage() {
           `10K Strategy Launched! ${data.keywords_stored} keywords stored. Total designs: ${data.total_designs_planned}`,
           { duration: 10000 }
         );
-        
         setTimeout(fetchData, 2000);
       } else {
         toast.error(data.message || "Launch failed");
@@ -288,15 +245,11 @@ export default function DashboardPage() {
   };
 
   const fetchTrends = async () => {
-    const API_URL = 'https://backend-production-7aae.up.railway.app/api/v1';
-    
-    if (!API_URL) return;
-
     setIsFetchingTrends(true);
     toast.info("🔍 Fetching trending keywords...");
 
     try {
-      const response = await fetch(`${API_URL}/trends/fetch?region=GB&limit=20`, {
+      const response = await fetch(`${API_BASE_URL}/trends/fetch?region=GB&limit=20`, {
         method: 'POST'
       });
 
@@ -336,10 +289,6 @@ export default function DashboardPage() {
   };
 
   const generateProducts = async (customTrendCount?: number) => {
-    const API_URL = 'https://backend-production-7aae.up.railway.app/api/v1';
-    
-    if (!API_URL) return;
-
     const trendsCount = customTrendCount || trendsToGenerate;
     setIsGenerating(true);
     
@@ -347,7 +296,7 @@ export default function DashboardPage() {
     toast.info(`Starting generation: ${trendsCount * 8} products (${modeLabel} mode)...`);
 
     try {
-      const response = await fetch(`${API_URL}/generation/batch-generate`, {
+      const response = await fetch(`${API_BASE_URL}/generation/batch-generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -405,7 +354,6 @@ export default function DashboardPage() {
     );
   }
 
-  // Filter visible products using the hidden products ref
   const visibleProducts = recentProducts.filter(p => !hiddenProductIds.current.has(p.id));
   const productsWithImages = visibleProducts.filter(p => p.artwork?.image_url);
   const dailyCalc = calculateDailyGeneration();
@@ -421,7 +369,6 @@ export default function DashboardPage() {
       <Toaster richColors position="bottom-left" />
       
       <div className="w-full max-w-7xl space-y-6">
-        {/* Header */}
         <header className="flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2">
@@ -448,7 +395,6 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        {/* Settings Panel */}
         {showSettings && (
           <Card className="border-orange-500">
             <CardHeader>
@@ -497,7 +443,6 @@ export default function DashboardPage() {
           </Card>
         )}
 
-        {/* 10K Launch Card */}
         {(genStatus?.total_products || 0) < 1000 && !showGallery && (
           <Card className="border-purple-500 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950">
             <CardHeader>
@@ -559,7 +504,6 @@ export default function DashboardPage() {
           </Card>
         )}
 
-        {/* Gallery View */}
         {showGallery ? (
           <Card>
             <CardHeader>
@@ -629,7 +573,6 @@ export default function DashboardPage() {
           </Card>
         ) : (
           <>
-            {/* Stats Cards */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -697,7 +640,6 @@ export default function DashboardPage() {
               </Card>
             </div>
 
-            {/* Progress Chart */}
             {trendAnalytics && (
               <Card>
                 <CardHeader>
@@ -717,7 +659,6 @@ export default function DashboardPage() {
               </Card>
             )}
 
-            {/* Generation Controls */}
             <Card className="border-primary">
               <CardHeader>
                 <CardTitle>Product Generation Controls</CardTitle>
