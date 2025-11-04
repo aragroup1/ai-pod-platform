@@ -4,15 +4,16 @@ from datetime import datetime, timedelta, date
 from decimal import Decimal
 from loguru import logger
 
-from app.database import db_pool
 from app.utils.cache import cache_result
 
 class AnalyticsEngine:
     """Comprehensive business analytics and intelligence"""
- def __init__(self, db_pool):
+    
+    def __init__(self, db_pool):
+        """Initialize with database pool"""
         self.db_pool = db_pool
-     
-    @cache_result(ttl=60) # Cache dashboard results for 1 minute
+
+    @cache_result(ttl=60)  # Cache dashboard results for 1 minute
     async def get_dashboard_metrics(
         self,
         days: int = 30
@@ -61,13 +62,21 @@ class AnalyticsEngine:
                 AND created_at <= $2
                 AND status NOT IN ('cancelled', 'refunded')
         """
-        result = await db_pool.fetchrow(query, start_date, end_date + timedelta(days=1))
-        
-        return {
-            "total_revenue": float(result['total_revenue']),
-            "total_profit": float(result['total_profit']),
-            "avg_order_value": float(result['avg_order_value'])
-        } if result else {}
+        try:
+            result = await self.db_pool.fetchrow(query, start_date, end_date + timedelta(days=1))
+            
+            return {
+                "total_revenue": float(result['total_revenue']) if result else 0,
+                "total_profit": float(result['total_profit']) if result else 0,
+                "avg_order_value": float(result['avg_order_value']) if result else 0
+            }
+        except Exception as e:
+            logger.error(f"Error fetching revenue metrics: {e}")
+            return {
+                "total_revenue": 0,
+                "total_profit": 0,
+                "avg_order_value": 0
+            }
 
     async def _get_order_count(
         self,
@@ -79,14 +88,22 @@ class AnalyticsEngine:
             SELECT COUNT(id) FROM orders
             WHERE created_at >= $1 AND created_at <= $2
         """
-        count = await db_pool.fetchval(query, start_date, end_date + timedelta(days=1))
-        return count or 0
+        try:
+            count = await self.db_pool.fetchval(query, start_date, end_date + timedelta(days=1))
+            return count or 0
+        except Exception as e:
+            logger.error(f"Error fetching order count: {e}")
+            return 0
 
     async def _get_product_count(self) -> int:
         """Helper to get total active product count."""
         query = "SELECT COUNT(id) FROM products WHERE status = 'active'"
-        count = await db_pool.fetchval(query)
-        return count or 0
+        try:
+            count = await self.db_pool.fetchval(query)
+            return count or 0
+        except Exception as e:
+            logger.error(f"Error fetching product count: {e}")
+            return 0
 
     async def _get_trend_count(
         self,
@@ -98,5 +115,9 @@ class AnalyticsEngine:
             SELECT COUNT(id) FROM trends 
             WHERE created_at >= $1 AND created_at <= $2
         """
-        count = await db_pool.fetchval(query, start_date, end_date + timedelta(days=1))
-        return count or 0
+        try:
+            count = await self.db_pool.fetchval(query, start_date, end_date + timedelta(days=1))
+            return count or 0
+        except Exception as e:
+            logger.error(f"Error fetching trend count: {e}")
+            return 0
