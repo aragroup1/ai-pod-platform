@@ -182,7 +182,7 @@ export default function DashboardPage() {
 
   // Approve product with permanent hiding
   const approveProduct = async (productId: number) => {
-    const API_URL = 'https://backend-production-7aae.up.railway.app/api/v1';
+
     
     try {
       // Add to hidden list IMMEDIATELY to prevent flicker
