@@ -12,10 +12,8 @@ import {
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 
-// CRITICAL: Hardcoded HTTPS URL - no environment variables
-// Cache buster to force Railway to serve new bundle
+// CRITICAL: Hardcoded HTTPS URL
 const API_BASE_URL = 'https://backend-production-7aae.up.railway.app/api/v1';
-const CACHE_BUSTER = `v=${Date.now()}`;
 
 // Interfaces
 interface DashboardStats {
@@ -83,6 +81,7 @@ export default function DashboardPage() {
   const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
   
   const hiddenProductIds = useRef<Set<number>>(new Set());
+  const fetchInProgress = useRef(false);  // FIXED: Prevent duplicate requests
   
   const [budgetMode, setBudgetMode] = useState<'cheap' | 'balanced' | 'quality'>('balanced');
   const [testingMode, setTestingMode] = useState(true);
@@ -90,8 +89,15 @@ export default function DashboardPage() {
   const [dailyGenerationTarget, setDailyGenerationTarget] = useState(100);
   const [autoGeneration, setAutoGeneration] = useState(false);
 
-  // Fetch dashboard data
+  // FIXED: Fetch dashboard data with deduplication
   const fetchData = async () => {
+    // Prevent duplicate requests
+    if (fetchInProgress.current) {
+      console.log('⏭️ Fetch already in progress, skipping...');
+      return;
+    }
+    
+    fetchInProgress.current = true;
     console.log('🔍 Fetching from API:', API_BASE_URL);
 
     try {
@@ -103,7 +109,7 @@ export default function DashboardPage() {
           console.error('Stats fetch failed:', err);
           return null;
         }),
-        fetch(`${API_BASE_URL}/products/?limit=100&status=active&include_images=true`).catch(err => {
+        fetch(`${API_BASE_URL}/products?limit=100&status=active&include_images=true`).catch(err => {  // FIXED: Removed trailing slash
           console.error('Products fetch failed:', err);
           throw err;
         }),
@@ -155,6 +161,7 @@ export default function DashboardPage() {
       setError(err.message);
     } finally {
       setLoading(false);
+      fetchInProgress.current = false;  // FIXED: Reset fetch lock
     }
   };
 
@@ -326,10 +333,22 @@ export default function DashboardPage() {
     }
   };
 
+  // FIXED: Initial fetch and polling (reduced frequency)
   useEffect(() => {
+    // Initial fetch
     fetchData();
-  }, []);
+    
+    // Poll every 30 seconds instead of constantly
+    const pollInterval = setInterval(() => {
+      if (!isGenerating && !fetchInProgress.current) {
+        fetchData();
+      }
+    }, 30000);  // FIXED: 30 seconds instead of constant polling
+    
+    return () => clearInterval(pollInterval);
+  }, [isGenerating]);
 
+  // Auto-generation polling
   useEffect(() => {
     if (autoGeneration && !isGenerating && genStatus) {
       const interval = setInterval(() => {
