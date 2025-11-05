@@ -165,6 +165,43 @@ export default function DashboardPage() {
     }
   };
 
+  // Add this function with your other API calls:
+const loadInitialKeywords = async () => {
+  setIsLoading(true);
+  toast.info("🚀 Loading initial keyword database...");
+  
+  try {
+    const response = await fetch(`${API_BASE_URL}/trends/load-initial-keywords`, {
+      method: 'POST'
+    });
+    
+    if (!response.ok) throw new Error('Failed to load keywords');
+    
+    const data = await response.json();
+    
+    toast.success(
+      `✅ Loaded ${data.keywords_loaded} keywords! Ready for ${data.expected_skus} SKUs`,
+      { duration: 10000 }
+    );
+    
+    setTimeout(fetchData, 2000);
+  } catch (err: any) {
+    toast.error(`Failed to load keywords: ${err.message}`);
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+// Add this button near your other action buttons:
+<Button 
+  onClick={loadInitialKeywords}
+  disabled={isLoading}
+  className="bg-gradient-to-r from-green-600 to-blue-600"
+>
+  <Package className="h-4 w-4 mr-2" />
+  Load Initial Keywords (1,250+)
+</Button>
+  
   const approveProduct = async (productId: number) => {
     try {
       hiddenProductIds.current.add(productId);
