@@ -846,6 +846,33 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 </div>
+
+                // Button 1: Update Search Volumes (click once)
+<button onClick={async () => {
+  const res = await fetch('/api/v1/trends/update-search-volumes', {method: 'POST'});
+  const data = await res.json();
+  alert(`✅ Updated ${data.updated} keywords!`);
+}}>
+  Update Search Volumes
+</button>
+
+// Button 2: Calculate Allocations (click once)
+<button onClick={async () => {
+  const res = await fetch('/api/v1/trends/calculate-allocations?target_designs=10000', {method: 'POST'});
+  const data = await res.json();
+  alert(`✅ Allocated ${data.total_allocated} designs!`);
+}}>
+  Calculate Allocations
+</button>
+
+// Button 3: Check Progress (anytime)
+<button onClick={async () => {
+  const res = await fetch('/api/v1/trends/progress');
+  const data = await res.json();
+  alert(`${data.progress_percentage}% (${data.total_generated}/${data.total_allocated})`);
+}}>
+  Check Progress
+</button>
                 
                 <div className="text-xs text-muted-foreground bg-muted p-3 rounded-lg grid grid-cols-2 gap-2">
                   <div>
