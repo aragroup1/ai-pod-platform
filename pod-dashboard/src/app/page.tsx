@@ -13,7 +13,9 @@ import {
 import { Toaster, toast } from 'sonner';
 
 // CRITICAL: Hardcoded HTTPS URL - no environment variables
+// Cache buster to force Railway to serve new bundle
 const API_BASE_URL = 'https://backend-production-7aae.up.railway.app/api/v1';
+const CACHE_BUSTER = `v=${Date.now()}`;
 
 // Interfaces
 interface DashboardStats {
