@@ -8,7 +8,8 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { 
   DollarSign, ShoppingCart, TrendingUp, Palette, AlertCircle, RefreshCw, 
   Zap, Info, Brain, Image as ImageIcon, ExternalLink, LayoutGrid, 
-  Check, X, Trash2, Rocket, Calendar, Settings, Target, Package, ThumbsUp, ThumbsDown
+  Check, X, Trash2, Rocket, Calendar, Settings, Target, Package, ThumbsUp, ThumbsDown,
+  Database
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 
@@ -76,12 +77,13 @@ export default function DashboardPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isFetchingTrends, setIsFetchingTrends] = useState(false);
   const [isLaunching10K, setIsLaunching10K] = useState(false);
+  const [isLoadingKeywords, setIsLoadingKeywords] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
   
   const hiddenProductIds = useRef<Set<number>>(new Set());
-  const fetchInProgress = useRef(false);  // FIXED: Prevent duplicate requests
+  const fetchInProgress = useRef(false);
   
   const [budgetMode, setBudgetMode] = useState<'cheap' | 'balanced' | 'quality'>('balanced');
   const [testingMode, setTestingMode] = useState(true);
@@ -89,9 +91,8 @@ export default function DashboardPage() {
   const [dailyGenerationTarget, setDailyGenerationTarget] = useState(100);
   const [autoGeneration, setAutoGeneration] = useState(false);
 
-  // FIXED: Fetch dashboard data with deduplication
+  // Fetch dashboard data with deduplication
   const fetchData = async () => {
-    // Prevent duplicate requests
     if (fetchInProgress.current) {
       console.log('⏭️ Fetch already in progress, skipping...');
       return;
@@ -109,7 +110,7 @@ export default function DashboardPage() {
           console.error('Stats fetch failed:', err);
           return null;
         }),
-        fetch(`${API_BASE_URL}/products?limit=100&status=active&include_images=true`).catch(err => {  // FIXED: Removed trailing slash
+        fetch(`${API_BASE_URL}/products?limit=100&status=active&include_images=true`).catch(err => {
           console.error('Products fetch failed:', err);
           throw err;
         }),
@@ -161,47 +162,10 @@ export default function DashboardPage() {
       setError(err.message);
     } finally {
       setLoading(false);
-      fetchInProgress.current = false;  // FIXED: Reset fetch lock
+      fetchInProgress.current = false;
     }
   };
 
-  // Add this function with your other API calls:
-const loadInitialKeywords = async () => {
-  setIsLoading(true);
-  toast.info("🚀 Loading initial keyword database...");
-  
-  try {
-    const response = await fetch(`${API_BASE_URL}/trends/load-initial-keywords`, {
-      method: 'POST'
-    });
-    
-    if (!response.ok) throw new Error('Failed to load keywords');
-    
-    const data = await response.json();
-    
-    toast.success(
-      `✅ Loaded ${data.keywords_loaded} keywords! Ready for ${data.expected_skus} SKUs`,
-      { duration: 10000 }
-    );
-    
-    setTimeout(fetchData, 2000);
-  } catch (err: any) {
-    toast.error(`Failed to load keywords: ${err.message}`);
-  } finally {
-    setIsLoading(false);
-  }
-};
-
-// Add this button near your other action buttons:
-<Button 
-  onClick={loadInitialKeywords}
-  disabled={isLoading}
-  className="bg-gradient-to-r from-green-600 to-blue-600"
->
-  <Package className="h-4 w-4 mr-2" />
-  Load Initial Keywords (1,250+)
-</Button>
-  
   const approveProduct = async (productId: number) => {
     try {
       hiddenProductIds.current.add(productId);
@@ -257,6 +221,37 @@ const loadInitialKeywords = async () => {
       
     } catch (err: any) {
       toast.error(`Rejection failed: ${err.message}`);
+    }
+  };
+
+  const loadInitialKeywords = async () => {
+    setIsLoadingKeywords(true);
+    toast.info("🚀 Loading initial keyword database (1,250+ keywords)...");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/trends/load-initial-keywords`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) throw new Error('Failed to load keywords');
+
+      const data = await response.json();
+      
+      if (data.success) {
+        toast.success(
+          `✅ Loaded ${data.keywords_loaded} keywords across ${data.categories} categories! Ready for ${data.expected_skus} SKUs`,
+          { duration: 10000 }
+        );
+        setTimeout(fetchData, 2000);
+      } else {
+        toast.error(data.message || "Load failed");
+      }
+
+    } catch (err: any) {
+      toast.error(`Keyword load failed: ${err.message}`);
+    } finally {
+      setIsLoadingKeywords(false);
     }
   };
 
@@ -370,17 +365,15 @@ const loadInitialKeywords = async () => {
     }
   };
 
-  // FIXED: Initial fetch and polling (reduced frequency)
+  // Initial fetch and polling
   useEffect(() => {
-    // Initial fetch
     fetchData();
     
-    // Poll every 30 seconds instead of constantly
     const pollInterval = setInterval(() => {
       if (!isGenerating && !fetchInProgress.current) {
         fetchData();
       }
-    }, 30000);  // FIXED: 30 seconds instead of constant polling
+    }, 30000);
     
     return () => clearInterval(pollInterval);
   }, [isGenerating]);
@@ -501,7 +494,66 @@ const loadInitialKeywords = async () => {
           </Card>
         )}
 
-        {(genStatus?.total_products || 0) < 1000 && !showGallery && (
+        {(trendAnalytics?.total_trends || 0) === 0 && !showGallery && (
+          <Card className="border-blue-500 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5 text-blue-600" />
+                No Keywords Found - Load Initial Database
+              </CardTitle>
+              <CardDescription>
+                Start by loading 1,250+ curated keywords across 74 categories
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <h4 className="font-semibold">Quick Start:</h4>
+                  <ul className="text-sm space-y-1">
+                    <li>• 1,250+ proven keywords</li>
+                    <li>• 74 trending categories</li>
+                    <li>• ~10,000 unique designs</li>
+                    <li>• Instant database load</li>
+                  </ul>
+                </div>
+                
+                <div className="space-y-2">
+                  <h4 className="font-semibold">Categories Include:</h4>
+                  <ul className="text-sm space-y-1">
+                    <li>• Nature & Landscapes</li>
+                    <li>• Typography & Quotes</li>
+                    <li>• Abstract & Geometric</li>
+                    <li>• Animals, Holidays, Cities...</li>
+                  </ul>
+                </div>
+                
+                <div className="space-y-2">
+                  <h4 className="font-semibold">Ready to Launch:</h4>
+                  <p className="text-sm">Click below to load keywords into your database</p>
+                  <Button 
+                    onClick={loadInitialKeywords}
+                    disabled={isLoadingKeywords}
+                    className="w-full bg-gradient-to-r from-blue-600 to-indigo-600"
+                  >
+                    {isLoadingKeywords ? (
+                      <>
+                        <Database className="h-4 w-4 mr-2 animate-pulse" />
+                        Loading...
+                      </>
+                    ) : (
+                      <>
+                        <Database className="h-4 w-4 mr-2" />
+                        Load 1,250+ Keywords
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {(genStatus?.total_products || 0) < 1000 && (trendAnalytics?.total_trends || 0) > 0 && !showGallery && (
           <Card className="border-purple-500 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -509,7 +561,7 @@ const loadInitialKeywords = async () => {
                 10K Initial Launch Strategy
               </CardTitle>
               <CardDescription>
-                Fast-track your inventory with 100 proven keywords across 10 categories
+                Fast-track your inventory with comprehensive keyword expansion
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -517,10 +569,10 @@ const loadInitialKeywords = async () => {
                 <div className="space-y-2">
                   <h4 className="font-semibold">What You'll Get:</h4>
                   <ul className="text-sm space-y-1">
-                    <li>• 100 high-volume keywords</li>
-                    <li>• 10 major categories</li>
-                    <li>• ~10,000 unique designs</li>
+                    <li>• Expanded keyword database</li>
+                    <li>• Multiple categories</li>
                     <li>• Volume-based allocation</li>
+                    <li>• Ready for generation</li>
                   </ul>
                 </div>
                 
@@ -530,15 +582,13 @@ const loadInitialKeywords = async () => {
                     <li>• Nature & Landscapes</li>
                     <li>• Typography & Quotes</li>
                     <li>• Abstract & Geometric</li>
-                    <li>• Animals, Botanical, Cities...</li>
+                    <li>• Plus many more...</li>
                   </ul>
                 </div>
                 
                 <div className="space-y-2">
-                  <h4 className="font-semibold">Investment:</h4>
-                  <p className="text-sm">Testing: ~£30</p>
-                  <p className="text-sm">Production: ~£400</p>
-                  <p className="text-sm">Time: ~5 hours</p>
+                  <h4 className="font-semibold">Launch Strategy:</h4>
+                  <p className="text-sm">Automated keyword expansion</p>
                   <Button 
                     onClick={launch10KInitial}
                     disabled={isLaunching10K}
