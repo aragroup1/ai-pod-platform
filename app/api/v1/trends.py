@@ -93,15 +93,16 @@ async def add_manual_keywords(input_data: ManualKeywordInput, db_pool = Depends(
             
             new_keyword = await db_pool.fetchrow(
                 """
-                INSERT INTO trends (keyword, search_volume, category, trend_score, designs_allocated, created_at)
-                VALUES ($1, $2, $3, $4, $5, NOW())
+                INSERT INTO trends (keyword, search_volume, category, trend_score, designs_allocated, status, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, NOW())
                 RETURNING *
                 """,
                 keyword_lower,
                 estimated_volume,
                 category,
                 7.0,
-                designs
+                designs,
+                'ready'
             )
             
             stored_keywords.append(dict(new_keyword))
@@ -167,15 +168,16 @@ async def batch_import_keywords(batch: BatchKeywordImport, db_pool = Depends(get
             
             new_keyword = await db_pool.fetchrow(
                 """
-                INSERT INTO trends (keyword, search_volume, category, trend_score, designs_allocated, created_at)
-                VALUES ($1, $2, $3, $4, $5, NOW())
+                INSERT INTO trends (keyword, search_volume, category, trend_score, designs_allocated, status, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, NOW())
                 RETURNING *
                 """,
                 keyword_lower,
                 kw_data.search_volume or 20000,
                 kw_data.category or "general",
                 kw_data.trend_score or 5.0,
-                designs
+                designs,
+                'ready'
             )
             
             stored_keywords.append(dict(new_keyword))
@@ -354,76 +356,169 @@ async def get_trend_analytics(db_pool = Depends(get_db_pool)):
 
 
 # ============================================
-# NEW: PRIORITY-BASED SYSTEM
+# MIGRATION ENDPOINT
+# ============================================
+
+@router.post("/run-migration")
+async def run_migration(db_pool: DatabasePool = Depends(get_db_pool)):
+    """
+    Run the database migration to add priority system columns.
+    Safe to run multiple times (uses IF NOT EXISTS).
+    """
+    try:
+        logger.info("🔧 Running priority system migration...")
+        
+        # Add unique constraint
+        await db_pool.execute("""
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'trends_keyword_unique'
+                ) THEN
+                    ALTER TABLE trends ADD CONSTRAINT trends_keyword_unique UNIQUE (keyword);
+                END IF;
+            END $$;
+        """)
+        
+        # Add columns
+        await db_pool.execute("ALTER TABLE trends ADD COLUMN IF NOT EXISTS designs_allocated INTEGER DEFAULT 8;")
+        await db_pool.execute("ALTER TABLE trends ADD COLUMN IF NOT EXISTS designs_generated INTEGER DEFAULT 0;")
+        await db_pool.execute("ALTER TABLE trends ADD COLUMN IF NOT EXISTS priority_tier VARCHAR(20) DEFAULT 'medium';")
+        await db_pool.execute("ALTER TABLE trends ADD COLUMN IF NOT EXISTS last_generated_at TIMESTAMP;")
+        
+        # Create indexes
+        await db_pool.execute("CREATE INDEX IF NOT EXISTS idx_trends_priority ON trends(search_volume DESC, designs_generated);")
+        await db_pool.execute("CREATE INDEX IF NOT EXISTS idx_trends_status ON trends(status) WHERE status = 'ready';")
+        
+        # Update existing data
+        await db_pool.execute("UPDATE trends SET designs_allocated = 8 WHERE designs_allocated IS NULL OR designs_allocated = 0;")
+        await db_pool.execute("UPDATE trends SET designs_generated = 0 WHERE designs_generated IS NULL;")
+        
+        # Get summary
+        summary = await db_pool.fetchrow("""
+            SELECT 
+                COUNT(*) as total_keywords,
+                COUNT(CASE WHEN designs_allocated > 0 THEN 1 END) as with_allocations,
+                SUM(designs_allocated) as total_designs_planned
+            FROM trends
+        """)
+        
+        logger.info("✅ Migration complete!")
+        
+        return {
+            "success": True,
+            "message": "Migration completed successfully!",
+            "summary": {
+                "total_keywords": summary['total_keywords'],
+                "keywords_with_allocations": summary['with_allocations'],
+                "total_designs_planned": summary['total_designs_planned']
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Migration error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# DEBUG ENDPOINT
+# ============================================
+
+@router.get("/debug-gallery")
+async def debug_gallery(db_pool: DatabasePool = Depends(get_db_pool)):
+    """Debug endpoint to check why gallery might be empty"""
+    try:
+        # Check products table
+        products_count = await db_pool.fetchval("SELECT COUNT(*) FROM products")
+        
+        products_by_status = await db_pool.fetch("""
+            SELECT status, COUNT(*) as count
+            FROM products
+            GROUP BY status
+        """)
+        
+        # Check if products have images
+        products_with_images = await db_pool.fetchval("""
+            SELECT COUNT(*) FROM products 
+            WHERE images IS NOT NULL AND images != '[]'
+        """)
+        
+        # Sample products
+        sample_products = await db_pool.fetch("""
+            SELECT id, title, status, images, created_at
+            FROM products
+            ORDER BY created_at DESC
+            LIMIT 5
+        """)
+        
+        return {
+            "total_products": products_count,
+            "by_status": [dict(s) for s in products_by_status],
+            "with_images": products_with_images,
+            "samples": [dict(p) for p in sample_products],
+            "diagnosis": 
+                "No products exist" if products_count == 0
+                else "Products missing images" if products_with_images == 0
+                else f"Products exist ({products_count} total, {products_with_images} with images) - check frontend query"
+        }
+        
+    except Exception as e:
+        return {"error": str(e), "diagnosis": "Database error or table doesn't exist"}
+
+
+# ============================================
+# PRIORITY SYSTEM ENDPOINTS
 # ============================================
 
 @router.post("/update-search-volumes")
 async def update_search_volumes(db_pool: DatabasePool = Depends(get_db_pool)):
-    """
-    Update search volumes for keywords that have default 1000 value.
-    Assigns realistic volumes based on category popularity.
-    """
+    """Update search volumes for keywords with default 1000 value"""
     try:
         logger.info("📊 Updating search volumes...")
         
-        # Define category tiers based on POD market research
         high_demand = [
             'Christmas', 'Halloween', 'Valentines', 'Coffee', 'Wine', 'Beer',
-            'Popular Dogs', 'Cats', 'Pet Lovers', 'Dog mom', 'Cat mom',
-            'Motivational', 'Funny & Sarcastic'
+            'Popular Dogs', 'Cats', 'Pet Lovers', 'Motivational', 'Funny & Sarcastic'
         ]
         
         medium_high = [
             'Mothers Day', 'Fathers Day', 'Fitness', 'Yoga', 'Travel',
-            'Oceans & Seas', 'Mountains & Peaks', 'Beach', 'Flowers & Plants',
+            'Oceans & Seas', 'Mountains & Peaks', 'Flowers & Plants',
             'Team Sports', 'Gaming', 'Music', 'Food'
         ]
         
         medium_demand = [
-            'Medical', 'Nurse', 'Teacher', 'Education', 'Business',
-            'Abstract Art', 'Geometric', 'Minimalist', 'Landscapes',
-            'US Cities', 'World Cities', 'Wildlife', 'Birds', 'Marine Life'
+            'Medical', 'Education', 'Business', 'Abstract Art', 'Geometric',
+            'Minimalist', 'Landscapes', 'US Cities', 'World Cities',
+            'Wildlife Mammals', 'Birds', 'Marine Life'
         ]
         
-        # Get all keywords with default volume (1000)
         keywords = await db_pool.fetch(
             "SELECT id, keyword, category FROM trends WHERE search_volume = 1000"
         )
         
         if not keywords:
-            return {
-                "success": True,
-                "message": "No keywords found with default search volume",
-                "updated": 0
-            }
+            return {"success": True, "message": "No keywords found with default search volume", "updated": 0}
         
         updated = 0
         for kw in keywords:
             category = kw['category']
             
-            # Assign volume based on category tier
             if category in high_demand:
-                volume = random.randint(25000, 70000)  # High demand
+                volume = random.randint(25000, 70000)
             elif category in medium_high:
-                volume = random.randint(15000, 40000)  # Medium-high
+                volume = random.randint(15000, 40000)
             elif category in medium_demand:
-                volume = random.randint(8000, 25000)   # Medium
+                volume = random.randint(8000, 25000)
             else:
-                volume = random.randint(3000, 15000)   # Niche/Long-tail
+                volume = random.randint(3000, 15000)
             
-            await db_pool.execute(
-                "UPDATE trends SET search_volume = $1 WHERE id = $2",
-                volume, kw['id']
-            )
+            await db_pool.execute("UPDATE trends SET search_volume = $1 WHERE id = $2", volume, kw['id'])
             updated += 1
         
         logger.info(f"✅ Updated {updated} keywords with realistic search volumes")
         
-        return {
-            "success": True,
-            "message": f"Updated {updated} keywords with realistic search volumes",
-            "updated": updated
-        }
+        return {"success": True, "message": f"Updated {updated} keywords", "updated": updated}
         
     except Exception as e:
         logger.error(f"Error updating volumes: {e}")
@@ -435,28 +530,20 @@ async def calculate_allocations(
     target_designs: int = Query(10000, description="Target number of total designs"),
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
-    """
-    Calculate smart design allocations to hit EXACTLY the target number.
-    Prioritizes high search volume keywords.
-    """
+    """Calculate smart design allocations to hit EXACTLY the target number"""
     try:
         logger.info(f"🎯 Calculating allocations for {target_designs} designs...")
         
-        # Get all keywords sorted by priority
-        keywords = await db_pool.fetch(
-            """
+        keywords = await db_pool.fetch("""
             SELECT id, keyword, search_volume, category
             FROM trends
             ORDER BY search_volume DESC
-            """
-        )
+        """)
         
         if not keywords:
             raise HTTPException(status_code=404, detail="No keywords found")
         
         total_keywords = len(keywords)
-        
-        # Smart allocation algorithm
         allocations = []
         remaining_designs = target_designs
         
@@ -467,7 +554,6 @@ async def calculate_allocations(
             if remaining_keywords == 0:
                 break
             
-            # Calculate allocation based on search volume and remaining budget
             if volume >= 50000:
                 base_allocation = 20
             elif volume >= 30000:
@@ -481,11 +567,9 @@ async def calculate_allocations(
             else:
                 base_allocation = 3
             
-            # Adjust if we're running out of budget
             avg_needed = remaining_designs // remaining_keywords if remaining_keywords > 0 else base_allocation
             allocation = min(base_allocation, max(3, avg_needed))
             
-            # Ensure we don't overshoot
             if remaining_designs < allocation:
                 allocation = remaining_designs
             
@@ -501,11 +585,9 @@ async def calculate_allocations(
             if remaining_designs <= 0:
                 break
         
-        # Apply allocations to database
         updated = 0
         for alloc in allocations:
-            await db_pool.execute(
-                """
+            await db_pool.execute("""
                 UPDATE trends 
                 SET designs_allocated = $1,
                     priority_tier = CASE 
@@ -517,18 +599,12 @@ async def calculate_allocations(
                         ELSE 'very_low'
                     END
                 WHERE id = $2
-                """,
-                alloc['allocation'], alloc['id']
-            )
+            """, alloc['allocation'], alloc['id'])
             updated += 1
         
         total_allocated = sum(a['allocation'] for a in allocations)
         
-        logger.info(f"✅ Allocated {total_allocated} designs across {updated} keywords")
-        
-        # Get summary stats
-        tier_stats = await db_pool.fetch(
-            """
+        tier_stats = await db_pool.fetch("""
             SELECT 
                 priority_tier,
                 COUNT(*) as keywords,
@@ -538,8 +614,7 @@ async def calculate_allocations(
             WHERE designs_allocated > 0
             GROUP BY priority_tier
             ORDER BY avg_volume DESC
-            """
-        )
+        """)
         
         return {
             "success": True,
@@ -548,15 +623,7 @@ async def calculate_allocations(
             "keywords_with_allocation": updated,
             "target": target_designs,
             "difference": target_designs - total_allocated,
-            "tier_breakdown": [
-                {
-                    "tier": stat['priority_tier'],
-                    "keywords": stat['keywords'],
-                    "total_designs": stat['total_designs'],
-                    "avg_volume": stat['avg_volume']
-                }
-                for stat in tier_stats
-            ]
+            "tier_breakdown": [{"tier": s['priority_tier'], "keywords": s['keywords'], "total_designs": s['total_designs'], "avg_volume": s['avg_volume']} for s in tier_stats]
         }
         
     except Exception as e:
@@ -569,40 +636,22 @@ async def get_generation_queue(
     limit: int = Query(100, ge=1, le=500),
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
-    """
-    Get the next batch of keywords to generate, prioritized by search volume.
-    Only returns keywords that haven't reached their allocation.
-    """
+    """Get the next batch of keywords to generate, prioritized by search volume"""
     try:
-        keywords = await db_pool.fetch(
-            """
+        keywords = await db_pool.fetch("""
             SELECT 
-                id,
-                keyword,
-                category,
-                search_volume,
-                designs_allocated,
-                designs_generated,
+                id, keyword, category, search_volume,
+                designs_allocated, designs_generated,
                 (designs_allocated - designs_generated) as remaining,
-                priority_tier,
-                last_generated_at
+                priority_tier, last_generated_at
             FROM trends
             WHERE designs_generated < designs_allocated
             AND status = 'ready'
-            ORDER BY 
-                search_volume DESC,
-                designs_generated ASC,
-                last_generated_at ASC NULLS FIRST
+            ORDER BY search_volume DESC, designs_generated ASC, last_generated_at ASC NULLS FIRST
             LIMIT $1
-            """,
-            limit
-        )
+        """, limit)
         
-        return {
-            "success": True,
-            "total_in_queue": len(keywords),
-            "keywords": [dict(kw) for kw in keywords]
-        }
+        return {"success": True, "total_in_queue": len(keywords), "keywords": [dict(kw) for kw in keywords]}
         
     except Exception as e:
         logger.error(f"Error fetching generation queue: {e}")
@@ -615,30 +664,18 @@ async def mark_keyword_generated(
     designs_count: int = 1,
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
-    """
-    Mark that designs have been generated for a keyword.
-    Increments the designs_generated counter.
-    """
+    """Mark that designs have been generated for a keyword"""
     try:
-        await db_pool.execute(
-            """
+        await db_pool.execute("""
             UPDATE trends 
-            SET 
-                designs_generated = designs_generated + $1,
-                last_generated_at = NOW()
+            SET designs_generated = designs_generated + $1, last_generated_at = NOW()
             WHERE id = $2
-            """,
-            designs_count, keyword_id
-        )
+        """, designs_count, keyword_id)
         
-        # Get updated status
-        kw = await db_pool.fetchrow(
-            """
+        kw = await db_pool.fetchrow("""
             SELECT keyword, designs_allocated, designs_generated
             FROM trends WHERE id = $1
-            """,
-            keyword_id
-        )
+        """, keyword_id)
         
         return {
             "success": True,
@@ -655,12 +692,9 @@ async def mark_keyword_generated(
 
 @router.get("/progress")
 async def get_generation_progress(db_pool: DatabasePool = Depends(get_db_pool)):
-    """
-    Get overall progress toward the 10k goal.
-    """
+    """Get overall progress toward the 10k goal"""
     try:
-        stats = await db_pool.fetchrow(
-            """
+        stats = await db_pool.fetchrow("""
             SELECT 
                 COUNT(*) as total_keywords,
                 SUM(designs_allocated) as total_allocated,
@@ -670,14 +704,10 @@ async def get_generation_progress(db_pool: DatabasePool = Depends(get_db_pool)):
                 SUM(CASE WHEN designs_generated = 0 THEN 1 ELSE 0 END) as pending_keywords
             FROM trends
             WHERE designs_allocated > 0
-            """
-        )
+        """)
         
         if not stats:
-            return {
-                "success": False,
-                "message": "No keywords with allocations found"
-            }
+            return {"success": False, "message": "No keywords with allocations found"}
         
         total_allocated = stats['total_allocated'] or 0
         total_generated = stats['total_generated'] or 0
@@ -701,19 +731,15 @@ async def get_generation_progress(db_pool: DatabasePool = Depends(get_db_pool)):
 
 
 # ============================================
-# ORIGINAL: LOAD INITIAL KEYWORDS
+# LOAD INITIAL KEYWORDS
 # ============================================
 
 @router.post("/load-initial-keywords")
 async def load_initial_keywords(db_pool: DatabasePool = Depends(get_db_pool)):
-    """
-    Load 1,250+ curated keywords across 74 categories!
-    One-click setup - generates ~10,000 SKUs
-    """
+    """Load 1,250+ curated keywords across 74 categories"""
     try:
         logger.info("🚀 Loading MEGA keyword database...")
         
-        # 1,250+ KEYWORDS ACROSS 74 CATEGORIES!
         mega_keywords = {
             "Mountains & Peaks": ["mountain", "peak", "summit", "alpine", "mountain range", "snow capped", "rocky mountain", "mountain sunset", "mountain sunrise", "mountain lake", "mountain forest", "mountain valley", "mountain meadow", "himalayan", "mountain trail", "mountain reflection", "misty mountain", "dramatic mountain", "mountain silhouette", "mountain vista", "mountain wilderness", "mountain ridge", "mountain pass", "mountain glacier", "mountain stream", "mountain waterfall", "mountain panorama", "mountain scenery"],
             "Oceans & Seas": ["ocean", "sea", "waves", "beach", "coastline", "seascape", "ocean waves", "tropical beach", "sandy beach", "ocean sunset", "sea foam", "tidal wave", "beach scene", "coastal view", "ocean horizon", "beach paradise", "turquoise ocean", "azure sea", "stormy sea", "calm ocean", "ocean breeze", "lighthouse", "pier", "dock", "harbor", "marina", "bay", "cove", "cliff coast", "rocky shore", "beach sunrise", "ocean life", "seaside", "coastal landscape"],
@@ -795,16 +821,12 @@ async def load_initial_keywords(db_pool: DatabasePool = Depends(get_db_pool)):
         for cat, kws in mega_keywords.items():
             for kw in kws:
                 try:
-                    await db_pool.execute(
-                        """
+                    await db_pool.execute("""
                         INSERT INTO trends (keyword, category, trend_score, search_volume, status, created_at)
                         VALUES ($1, $2, $3, $4, $5, NOW())
-                        """,
-                        kw, cat, 8.0, 1000, 'ready'
-                    )
+                    """, kw, cat, 8.0, 1000, 'ready')
                     total += 1
-                except Exception as e:
-                    # Skip duplicates or other errors
+                except:
                     pass
         
         logger.info(f"✅ Loaded {total} keywords across {len(mega_keywords)} categories!")
@@ -812,8 +834,7 @@ async def load_initial_keywords(db_pool: DatabasePool = Depends(get_db_pool)):
             "success": True,
             "keywords_loaded": total,
             "categories": len(mega_keywords),
-            "expected_skus": total * 8,
-            "message": f"Loaded {total} keywords! Ready to generate {total * 8} SKUs!"
+            "message": f"Loaded {total} keywords!"
         }
     except Exception as e:
         logger.error(f"Error: {e}")
