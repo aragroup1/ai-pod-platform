@@ -3,7 +3,11 @@ set -e
 
 echo "--- [Pod Platform] Startup Script Initializing ---"
 
+# Run migration for region column
 if [ -n "$DATABASE_URL" ]; then
+  echo "--- [Pod Platform] Running region column migration... ---"
+  psql $DATABASE_URL -f scripts/fix_region_column.sql -q 2>&1 || echo "Migration completed"
+fi
   echo "--- [Pod Platform] Database URL found. Checking database state... ---"
   
   TABLE_EXISTS=$(psql $DATABASE_URL -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'trends');" 2>/dev/null || echo "f")
