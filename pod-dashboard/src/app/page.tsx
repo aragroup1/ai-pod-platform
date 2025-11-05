@@ -847,32 +847,108 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                // Button 1: Update Search Volumes (click once)
-<button onClick={async () => {
-  const res = await fetch('/api/v1/trends/update-search-volumes', {method: 'POST'});
-  const data = await res.json();
-  alert(`✅ Updated ${data.updated} keywords!`);
-}}>
-  Update Search Volumes
-</button>
+                {/* ✅ Maintenance & Analytics Buttons */}
+                <div className="col-span-full">
+                  <label className="text-sm font-medium mb-2 block">Maintenance & Analytics</label>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={async () => {
+                        toast.info("Running database migration...");
+                        try {
+                          const res = await fetch(`${API_BASE_URL}/trends/run-migration`, { method: 'POST' });
+                          const data = await res.json();
+                          if (res.ok && data.summary?.total_keywords) {
+                            toast.success(
+                              `✅ Migration complete! ${data.summary.total_keywords} keywords ready.`,
+                              { duration: 6000 }
+                            );
+                            setTimeout(fetchData, 1500);
+                          } else {
+                            throw new Error(data.message || 'Migration failed');
+                          }
+                        } catch (err: any) {
+                          toast.error(`Migration failed: ${err.message}`);
+                        }
+                      }}
+                      size="sm"
+                      variant="outline"
+                      className="bg-yellow-50 hover:bg-yellow-100 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/40"
+                    >
+                      <Database className="h-3 w-3 mr-1" />
+                      0️⃣ Run Migration
+                    </Button>
 
-// Button 2: Calculate Allocations (click once)
-<button onClick={async () => {
-  const res = await fetch('/api/v1/trends/calculate-allocations?target_designs=10000', {method: 'POST'});
-  const data = await res.json();
-  alert(`✅ Allocated ${data.total_allocated} designs!`);
-}}>
-  Calculate Allocations
-</button>
+                    <Button
+                      onClick={async () => {
+                        toast.info("Updating search volumes...");
+                        try {
+                          const res = await fetch(`${API_BASE_URL}/trends/update-search-volumes`, { method: 'POST' });
+                          const data = await res.json();
+                          if (res.ok && data.updated) {
+                            toast.success(`✅ Updated ${data.updated} keywords with fresh search volumes!`);
+                            setTimeout(fetchData, 1000);
+                          } else {
+                            throw new Error(data.message || 'Update failed');
+                          }
+                        } catch (err: any) {
+                          toast.error(`Failed to update volumes: ${err.message}`);
+                        }
+                      }}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Update Search Volumes
+                    </Button>
 
-// Button 3: Check Progress (anytime)
-<button onClick={async () => {
-  const res = await fetch('/api/v1/trends/progress');
-  const data = await res.json();
-  alert(`${data.progress_percentage}% (${data.total_generated}/${data.total_allocated})`);
-}}>
-  Check Progress
-</button>
+                    <Button
+                      onClick={async () => {
+                        toast.info("Calculating design allocations...");
+                        try {
+                          const res = await fetch(`${API_BASE_URL}/trends/calculate-allocations?target_designs=10000`, { method: 'POST' });
+                          const data = await res.json();
+                          if (res.ok && data.total_allocated !== undefined) {
+                            toast.success(`✅ Allocated ${data.total_allocated} designs across ${data.categories_used} categories!`);
+                            setTimeout(fetchData, 1000);
+                          } else {
+                            throw new Error(data.message || 'Allocation failed');
+                          }
+                        } catch (err: any) {
+                          toast.error(`Allocation failed: ${err.message}`);
+                        }
+                      }}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <Target className="h-3 w-3 mr-1" />
+                      Calculate Allocations
+                    </Button>
+
+                    <Button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`${API_BASE_URL}/trends/progress`);
+                          const data = await res.json();
+                          if (res.ok) {
+                            toast(`📊 Progress: ${data.progress_percentage}% (${data.total_generated}/${data.total_allocated} designs)`, {
+                              icon: <Info className="h-4 w-4" />,
+                              duration: 5000
+                            });
+                          } else {
+                            throw new Error(data.message || 'Failed to fetch progress');
+                          }
+                        } catch (err: any) {
+                          toast.error(`Progress check failed: ${err.message}`);
+                        }
+                      }}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <Info className="h-3 w-3 mr-1" />
+                      Check Progress
+                    </Button>
+                  </div>
+                </div>
                 
                 <div className="text-xs text-muted-foreground bg-muted p-3 rounded-lg grid grid-cols-2 gap-2">
                   <div>
