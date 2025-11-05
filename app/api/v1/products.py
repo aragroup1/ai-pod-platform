@@ -47,7 +47,7 @@ async def get_product_image(
         raise HTTPException(status_code=500, detail="Failed to retrieve image")
 
 
-@router.get("/")  # FIXED: Added trailing slash
+@router.get("")  # CRITICAL FIX: Empty string instead of "/" to avoid 307 redirects
 async def get_products(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
