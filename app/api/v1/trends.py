@@ -451,7 +451,7 @@ async def load_initial_keywords(db_pool: DatabasePool = Depends(get_db_pool)):
                 try:
                     await db_pool.execute(
                         """
-                        INSERT INTO trends (keyword, category, region, trend_score, search_volume, status, created_at)
+                        INSERT INTO trends (keyword, category, trend_score, search_volume, status, created_at)
                         VALUES ($1, $2, 'GB', 8.0, 1000, 'ready', NOW())
                         ON CONFLICT (keyword, region) DO UPDATE
                         SET category = EXCLUDED.category, trend_score = GREATEST(trends.trend_score, 8.0), status = 'ready'
