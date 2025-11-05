@@ -3,6 +3,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 import logging
+import random
 
 from app.core.trends.service import TrendService
 from app.database import DatabasePool
@@ -92,14 +93,15 @@ async def add_manual_keywords(input_data: ManualKeywordInput, db_pool = Depends(
             
             new_keyword = await db_pool.fetchrow(
                 """
-                INSERT INTO trends (keyword, search_volume, category, trend_score, created_at)
-                VALUES ($1, $2, $3, $4, NOW())
+                INSERT INTO trends (keyword, search_volume, category, trend_score, designs_allocated, created_at)
+                VALUES ($1, $2, $3, $4, $5, NOW())
                 RETURNING *
                 """,
                 keyword_lower,
                 estimated_volume,
                 category,
-                7.0
+                7.0,
+                designs
             )
             
             stored_keywords.append(dict(new_keyword))
@@ -165,14 +167,15 @@ async def batch_import_keywords(batch: BatchKeywordImport, db_pool = Depends(get
             
             new_keyword = await db_pool.fetchrow(
                 """
-                INSERT INTO trends (keyword, search_volume, category, trend_score, created_at)
-                VALUES ($1, $2, $3, $4, NOW())
+                INSERT INTO trends (keyword, search_volume, category, trend_score, designs_allocated, created_at)
+                VALUES ($1, $2, $3, $4, $5, NOW())
                 RETURNING *
                 """,
                 keyword_lower,
                 kw_data.search_volume or 20000,
                 kw_data.category or "general",
-                kw_data.trend_score or 5.0
+                kw_data.trend_score or 5.0,
+                designs
             )
             
             stored_keywords.append(dict(new_keyword))
@@ -190,44 +193,6 @@ async def batch_import_keywords(batch: BatchKeywordImport, db_pool = Depends(get
         logger.error(f"❌ Batch import error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/update-search-volumes")
-async def update_search_volumes(db_pool = Depends(get_db_pool)):
-    """Update search volumes for keywords that have default 1000 value"""
-    try:
-        import random
-        
-        # Define category tiers
-        high_demand = ['Christmas', 'Halloween', 'Valentines', 'Coffee', 'Wine', 'Popular Dogs', 'Cats', 'Pet Lovers']
-        medium_demand = ['Motivational', 'Fitness', 'Travel', 'Oceans & Seas', 'Mountains & Peaks', 'Mothers Day', 'Fathers Day']
-        
-        # Get all keywords with default volume
-        keywords = await db_pool.fetch(
-            "SELECT id, keyword, category FROM trends WHERE search_volume = 1000"
-        )
-        
-        updated = 0
-        for kw in keywords:
-            if kw['category'] in high_demand:
-                volume = random.randint(20000, 60000)
-            elif kw['category'] in medium_demand:
-                volume = random.randint(10000, 40000)
-            else:
-                volume = random.randint(3000, 18000)
-            
-            await db_pool.execute(
-                "UPDATE trends SET search_volume = $1 WHERE id = $2",
-                volume, kw['id']
-            )
-            updated += 1
-        
-        return {
-            "success": True,
-            "message": f"Updated {updated} keywords with realistic search volumes"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error updating volumes: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/stats")
 async def get_trend_stats(db_pool = Depends(get_db_pool)):
@@ -389,11 +354,354 @@ async def get_trend_analytics(db_pool = Depends(get_db_pool)):
 
 
 # ============================================
-# COPY THIS ENTIRE BLOCK INTO YOUR trends.py
-# Add at the BOTTOM of the file
-# Make sure these imports are at the TOP:
-#   from app.database import DatabasePool
-#   from app.dependencies import get_db_pool
+# NEW: PRIORITY-BASED SYSTEM
+# ============================================
+
+@router.post("/update-search-volumes")
+async def update_search_volumes(db_pool: DatabasePool = Depends(get_db_pool)):
+    """
+    Update search volumes for keywords that have default 1000 value.
+    Assigns realistic volumes based on category popularity.
+    """
+    try:
+        logger.info("📊 Updating search volumes...")
+        
+        # Define category tiers based on POD market research
+        high_demand = [
+            'Christmas', 'Halloween', 'Valentines', 'Coffee', 'Wine', 'Beer',
+            'Popular Dogs', 'Cats', 'Pet Lovers', 'Dog mom', 'Cat mom',
+            'Motivational', 'Funny & Sarcastic'
+        ]
+        
+        medium_high = [
+            'Mothers Day', 'Fathers Day', 'Fitness', 'Yoga', 'Travel',
+            'Oceans & Seas', 'Mountains & Peaks', 'Beach', 'Flowers & Plants',
+            'Team Sports', 'Gaming', 'Music', 'Food'
+        ]
+        
+        medium_demand = [
+            'Medical', 'Nurse', 'Teacher', 'Education', 'Business',
+            'Abstract Art', 'Geometric', 'Minimalist', 'Landscapes',
+            'US Cities', 'World Cities', 'Wildlife', 'Birds', 'Marine Life'
+        ]
+        
+        # Get all keywords with default volume (1000)
+        keywords = await db_pool.fetch(
+            "SELECT id, keyword, category FROM trends WHERE search_volume = 1000"
+        )
+        
+        if not keywords:
+            return {
+                "success": True,
+                "message": "No keywords found with default search volume",
+                "updated": 0
+            }
+        
+        updated = 0
+        for kw in keywords:
+            category = kw['category']
+            
+            # Assign volume based on category tier
+            if category in high_demand:
+                volume = random.randint(25000, 70000)  # High demand
+            elif category in medium_high:
+                volume = random.randint(15000, 40000)  # Medium-high
+            elif category in medium_demand:
+                volume = random.randint(8000, 25000)   # Medium
+            else:
+                volume = random.randint(3000, 15000)   # Niche/Long-tail
+            
+            await db_pool.execute(
+                "UPDATE trends SET search_volume = $1 WHERE id = $2",
+                volume, kw['id']
+            )
+            updated += 1
+        
+        logger.info(f"✅ Updated {updated} keywords with realistic search volumes")
+        
+        return {
+            "success": True,
+            "message": f"Updated {updated} keywords with realistic search volumes",
+            "updated": updated
+        }
+        
+    except Exception as e:
+        logger.error(f"Error updating volumes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/calculate-allocations")
+async def calculate_allocations(
+    target_designs: int = Query(10000, description="Target number of total designs"),
+    db_pool: DatabasePool = Depends(get_db_pool)
+):
+    """
+    Calculate smart design allocations to hit EXACTLY the target number.
+    Prioritizes high search volume keywords.
+    """
+    try:
+        logger.info(f"🎯 Calculating allocations for {target_designs} designs...")
+        
+        # Get all keywords sorted by priority
+        keywords = await db_pool.fetch(
+            """
+            SELECT id, keyword, search_volume, category
+            FROM trends
+            ORDER BY search_volume DESC
+            """
+        )
+        
+        if not keywords:
+            raise HTTPException(status_code=404, detail="No keywords found")
+        
+        total_keywords = len(keywords)
+        
+        # Smart allocation algorithm
+        allocations = []
+        remaining_designs = target_designs
+        
+        for i, kw in enumerate(keywords):
+            volume = kw['search_volume']
+            remaining_keywords = total_keywords - i
+            
+            if remaining_keywords == 0:
+                break
+            
+            # Calculate allocation based on search volume and remaining budget
+            if volume >= 50000:
+                base_allocation = 20
+            elif volume >= 30000:
+                base_allocation = 15
+            elif volume >= 20000:
+                base_allocation = 12
+            elif volume >= 10000:
+                base_allocation = 8
+            elif volume >= 5000:
+                base_allocation = 5
+            else:
+                base_allocation = 3
+            
+            # Adjust if we're running out of budget
+            avg_needed = remaining_designs // remaining_keywords if remaining_keywords > 0 else base_allocation
+            allocation = min(base_allocation, max(3, avg_needed))
+            
+            # Ensure we don't overshoot
+            if remaining_designs < allocation:
+                allocation = remaining_designs
+            
+            allocations.append({
+                'id': kw['id'],
+                'keyword': kw['keyword'],
+                'search_volume': volume,
+                'allocation': allocation
+            })
+            
+            remaining_designs -= allocation
+            
+            if remaining_designs <= 0:
+                break
+        
+        # Apply allocations to database
+        updated = 0
+        for alloc in allocations:
+            await db_pool.execute(
+                """
+                UPDATE trends 
+                SET designs_allocated = $1,
+                    priority_tier = CASE 
+                        WHEN search_volume >= 50000 THEN 'very_high'
+                        WHEN search_volume >= 30000 THEN 'high'
+                        WHEN search_volume >= 20000 THEN 'medium_high'
+                        WHEN search_volume >= 10000 THEN 'medium'
+                        WHEN search_volume >= 5000 THEN 'low'
+                        ELSE 'very_low'
+                    END
+                WHERE id = $2
+                """,
+                alloc['allocation'], alloc['id']
+            )
+            updated += 1
+        
+        total_allocated = sum(a['allocation'] for a in allocations)
+        
+        logger.info(f"✅ Allocated {total_allocated} designs across {updated} keywords")
+        
+        # Get summary stats
+        tier_stats = await db_pool.fetch(
+            """
+            SELECT 
+                priority_tier,
+                COUNT(*) as keywords,
+                SUM(designs_allocated) as total_designs,
+                AVG(search_volume)::int as avg_volume
+            FROM trends
+            WHERE designs_allocated > 0
+            GROUP BY priority_tier
+            ORDER BY avg_volume DESC
+            """
+        )
+        
+        return {
+            "success": True,
+            "message": f"Allocated {total_allocated} designs across {updated} keywords",
+            "total_allocated": total_allocated,
+            "keywords_with_allocation": updated,
+            "target": target_designs,
+            "difference": target_designs - total_allocated,
+            "tier_breakdown": [
+                {
+                    "tier": stat['priority_tier'],
+                    "keywords": stat['keywords'],
+                    "total_designs": stat['total_designs'],
+                    "avg_volume": stat['avg_volume']
+                }
+                for stat in tier_stats
+            ]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error calculating allocations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/generation-queue")
+async def get_generation_queue(
+    limit: int = Query(100, ge=1, le=500),
+    db_pool: DatabasePool = Depends(get_db_pool)
+):
+    """
+    Get the next batch of keywords to generate, prioritized by search volume.
+    Only returns keywords that haven't reached their allocation.
+    """
+    try:
+        keywords = await db_pool.fetch(
+            """
+            SELECT 
+                id,
+                keyword,
+                category,
+                search_volume,
+                designs_allocated,
+                designs_generated,
+                (designs_allocated - designs_generated) as remaining,
+                priority_tier,
+                last_generated_at
+            FROM trends
+            WHERE designs_generated < designs_allocated
+            AND status = 'ready'
+            ORDER BY 
+                search_volume DESC,
+                designs_generated ASC,
+                last_generated_at ASC NULLS FIRST
+            LIMIT $1
+            """,
+            limit
+        )
+        
+        return {
+            "success": True,
+            "total_in_queue": len(keywords),
+            "keywords": [dict(kw) for kw in keywords]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching generation queue: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/mark-generated")
+async def mark_keyword_generated(
+    keyword_id: int,
+    designs_count: int = 1,
+    db_pool: DatabasePool = Depends(get_db_pool)
+):
+    """
+    Mark that designs have been generated for a keyword.
+    Increments the designs_generated counter.
+    """
+    try:
+        await db_pool.execute(
+            """
+            UPDATE trends 
+            SET 
+                designs_generated = designs_generated + $1,
+                last_generated_at = NOW()
+            WHERE id = $2
+            """,
+            designs_count, keyword_id
+        )
+        
+        # Get updated status
+        kw = await db_pool.fetchrow(
+            """
+            SELECT keyword, designs_allocated, designs_generated
+            FROM trends WHERE id = $1
+            """,
+            keyword_id
+        )
+        
+        return {
+            "success": True,
+            "keyword": kw['keyword'],
+            "designs_generated": kw['designs_generated'],
+            "designs_allocated": kw['designs_allocated'],
+            "completed": kw['designs_generated'] >= kw['designs_allocated']
+        }
+        
+    except Exception as e:
+        logger.error(f"Error marking generated: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/progress")
+async def get_generation_progress(db_pool: DatabasePool = Depends(get_db_pool)):
+    """
+    Get overall progress toward the 10k goal.
+    """
+    try:
+        stats = await db_pool.fetchrow(
+            """
+            SELECT 
+                COUNT(*) as total_keywords,
+                SUM(designs_allocated) as total_allocated,
+                SUM(designs_generated) as total_generated,
+                SUM(CASE WHEN designs_generated >= designs_allocated THEN 1 ELSE 0 END) as completed_keywords,
+                SUM(CASE WHEN designs_generated > 0 AND designs_generated < designs_allocated THEN 1 ELSE 0 END) as in_progress_keywords,
+                SUM(CASE WHEN designs_generated = 0 THEN 1 ELSE 0 END) as pending_keywords
+            FROM trends
+            WHERE designs_allocated > 0
+            """
+        )
+        
+        if not stats:
+            return {
+                "success": False,
+                "message": "No keywords with allocations found"
+            }
+        
+        total_allocated = stats['total_allocated'] or 0
+        total_generated = stats['total_generated'] or 0
+        progress_pct = (total_generated / total_allocated * 100) if total_allocated > 0 else 0
+        
+        return {
+            "success": True,
+            "total_keywords": stats['total_keywords'],
+            "total_allocated": total_allocated,
+            "total_generated": total_generated,
+            "remaining": total_allocated - total_generated,
+            "progress_percentage": round(progress_pct, 2),
+            "completed_keywords": stats['completed_keywords'],
+            "in_progress_keywords": stats['in_progress_keywords'],
+            "pending_keywords": stats['pending_keywords']
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting progress: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# ORIGINAL: LOAD INITIAL KEYWORDS
 # ============================================
 
 @router.post("/load-initial-keywords")
