@@ -47,7 +47,7 @@ async def get_product_image(
         raise HTTPException(status_code=500, detail="Failed to retrieve image")
 
 
-@router.get("")
+@router.get("/")  # FIXED: Added trailing slash
 async def get_products(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -59,7 +59,6 @@ async def get_products(
 ):
     """Get list of products with optional filtering"""
     try:
-        # FIXED: Use correct column names from your schema
         base_query = """
             SELECT 
                 p.id,
@@ -84,7 +83,6 @@ async def get_products(
         params = []
         param_index = 1
         
-        # Add filters
         if category:
             base_query += f" AND p.category = ${param_index}"
             params.append(category)
@@ -105,14 +103,11 @@ async def get_products(
             params.append(f"%{search}%")
             param_index += 1
         
-        # Add ordering and pagination
         base_query += f" ORDER BY p.created_at DESC LIMIT ${param_index} OFFSET ${param_index + 1}"
         params.extend([limit, offset])
         
-        # Execute query
         rows = await db_pool.fetch(base_query, *params)
         
-        # Get total count for pagination
         count_query = """
             SELECT COUNT(*) as total
             FROM products p
@@ -143,24 +138,20 @@ async def get_products(
         
         total_count = await db_pool.fetchval(count_query, *count_params)
         
-        # Format response
         products = []
         storage = get_storage_manager()
         
         for row in rows:
             product_dict = dict(row)
             
-            # Handle metadata (already a dict from asyncpg JSONB)
             metadata = product_dict.get('metadata')
             if metadata is None:
                 metadata = {}
             
-            # Generate pre-signed URL for image if available
             image_url = None
             if product_dict.get('image_url'):
                 try:
                     s3_key = product_dict['image_url']
-                    # Handle both S3 keys and full URLs
                     if s3_key.startswith('http'):
                         image_url = s3_key
                     else:
@@ -237,12 +228,10 @@ async def get_product(
         
         product_dict = dict(row)
         
-        # Handle metadata
         metadata = product_dict.get('metadata')
         if metadata is None:
             metadata = {}
         
-        # Generate pre-signed URL for image
         image_url = None
         if product_dict.get('image_url'):
             try:
