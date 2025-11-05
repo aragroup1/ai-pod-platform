@@ -449,17 +449,17 @@ async def load_initial_keywords(db_pool: DatabasePool = Depends(get_db_pool)):
         for cat, kws in mega_keywords.items():
             for kw in kws:
                 try:
-    await db_pool.execute(
-        """
-        INSERT INTO trends (keyword, category, trend_score, search_volume, status, created_at)
-        VALUES ($1, $2, $3, $4, $5, NOW())
-        """,
-        kw, cat, 8.0, 1000, 'ready'
-    )
-    total += 1
-except Exception as e:
-    # Keyword already exists or other error - skip it
-    logger.debug(f"Skipped: {kw} - {e}")
+                    await db_pool.execute(
+                        """
+                        INSERT INTO trends (keyword, category, trend_score, search_volume, status, created_at)
+                        VALUES ($1, $2, $3, $4, $5, NOW())
+                        """,
+                        kw, cat, 8.0, 1000, 'ready'
+                    )
+                    total += 1
+                except Exception as e:
+                    # Skip duplicates or other errors
+                    pass
         
         logger.info(f"✅ Loaded {total} keywords across {len(mega_keywords)} categories!")
         return {
