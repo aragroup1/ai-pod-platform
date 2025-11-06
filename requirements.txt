@@ -13,50 +13,32 @@ alembic==1.12.1
 pgvector==0.2.3
 psycopg2-binary==2.9.9
 
-# Redis & Caching
+# Caching
 redis==5.2.0
 aiocache==0.12.2
 hiredis==2.2.3
 
-# Background Jobs
+# Task Queue
 celery==5.3.4
 flower==2.0.1
 
-# AI & Image Processing
+# AI/ML
 replicate==1.0.4
 openai==1.3.5
-pillow==10.1.0
-httpx==0.27.2
-aiohttp==3.9.2
-jinja2==3.1.2
-anthropic==0.39.0
+pillow==11.0.0
 
-# Cloud Storage
-boto3==1.34.90
-aioboto3==13.0.0
-aiofiles==23.2.1
+# AWS
+boto3==1.28.85
+botocore==1.31.85
 
-# Security
-passlib[bcrypt]==1.7.4
-python-jose[cryptography]==3.3.0
-cryptography==41.0.7
-
-# Utilities
-pandas==2.1.3
-numpy==1.26.2
-python-dateutil==2.8.2
-pytz==2023.3
-tenacity==8.2.3
-loguru==0.7.2
-pyyaml==6.0.1
+# API Clients
+httpx==0.25.1
+aiohttp==3.9.0
 requests==2.31.0
 
-# Trends & Keywords
-pytrends==4.9.2
-schedule==1.2.0
+# Monitoring
+sentry-sdk==1.38.0
 
-# Google Ads API
-google-ads==23.1.0
-google-auth==2.25.2
-google-auth-oauthlib==1.2.0
-google-auth-httplib2==0.2.0
+# Utilities
+loguru==0.7.2
+pytrends==4.9.2
