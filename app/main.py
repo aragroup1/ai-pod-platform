@@ -109,5 +109,6 @@ app.include_router(approval.router, prefix=f"{settings.API_V1_PREFIX}/approval",
 app.include_router(product_feedback.router, prefix=f"{settings.API_V1_PREFIX}/product-feedback", tags=["Feedback"])
 app.include_router(keyword_research.router, prefix=f"{settings.API_V1_PREFIX}/keyword-research", tags=["Keywords"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
+app.include_router(debug.router, prefix=f"{settings.API_V1_PREFIX}/debug", tags=["Debug"])
 
 logger.info("✅ All routes registered")
