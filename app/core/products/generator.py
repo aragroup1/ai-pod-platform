@@ -1,186 +1,162 @@
-# app/core/products/generator.py - FIXED VERSION
-"""
-Product Generator - Creates products from trends using asyncpg
-"""
-from typing import List, Optional, Dict
-from loguru import logger
+# COMPLETE app/core/products/generator.py WITH FIX
+# Replace your current generator.py with this
+
+import logging
+import json
+from typing import Dict, List, Optional
 from datetime import datetime
 
 from app.database import DatabasePool
-from app.core.ai.generator import get_ai_generator
-from app.core.ai.prompt_templates import get_prompt_for_style, STYLE_PRICING
-from app.utils.s3_storage import get_storage_manager
+from app.core.ai.generator import AIGenerator
+from app.utils.s3_storage import upload_image, download_and_upload_from_url
+
+logger = logging.getLogger(__name__)
+
 
 class ProductGenerator:
-    """Generates products from trending keywords"""
-    
-    # Art styles to generate per keyword
-    STYLES = [
-        'minimalist', 'abstract', 'vintage', 'watercolor',
-        'line_art', 'photography', 'typography', 'botanical'
-    ]
-    
-    def __init__(self, db_pool: DatabasePool, testing_mode: bool = False, budget_mode: str = "balanced"):
+    def __init__(self, db_pool: DatabasePool):
         self.db_pool = db_pool
-        self.ai_generator = get_ai_generator(testing_mode=testing_mode, budget_mode=budget_mode)
-        self.storage = get_storage_manager()
-        self.testing_mode = testing_mode
-        self.budget_mode = budget_mode
+        self.ai_generator = AIGenerator()
     
-    async def generate_products_from_trend(
-        self,
-        trend_id: int,
-        styles: Optional[List[str]] = None,
-        upscale: bool = False
-    ) -> List[Dict]:
-        """Generate products for a single trend"""
-        try:
-            # Get trend details
-            trend = await self.db_pool.fetchrow(
-                "SELECT * FROM trends WHERE id = $1",
-                trend_id
-            )
-            
-            if not trend:
-                logger.error(f"Trend {trend_id} not found")
-                return []
-            
-            keyword = trend['keyword']
-            styles_to_generate = styles or self.STYLES
-            
-            logger.info(f"🎨 Generating {len(styles_to_generate)} products for: {keyword}")
-            
-            products = []
-            
-            for style in styles_to_generate:
-                try:
-                    # Generate artwork
-                    prompt_config = get_prompt_for_style(keyword, style)
-                    
-                    logger.info(f"  Generating {style} style...")
-                    artwork_result = await self.ai_generator.generate_image(
-                        prompt=prompt_config['prompt'],
-                        style=style,
-                        keyword=keyword
-                    )
-                    
-                    if not artwork_result or not artwork_result.get('image_url'):
-                        logger.error(f"  Failed to generate {style}")
-                        continue
-                    
-                    # Upload to S3
-                    logger.info(f"  Uploading to S3...")
-                    s3_key = await self.storage.download_and_upload_from_url(
-                        source_url=artwork_result['image_url'],
-                        folder=f"products/{keyword.replace(' ', '-')}",
-                        metadata={
-                            'keyword': keyword,
-                            'style': style,
-                            'model': artwork_result.get('model_used'),
-                            'trend_id': trend_id
-                        }
-                    )
-                    
-                    if not s3_key:
-                        logger.error(f"  Failed to upload to S3")
-                        continue
-                    
-                    # Store artwork in database
-                    artwork_id = await self.db_pool.fetchval(
-                        """
-                        INSERT INTO artwork (
-                            prompt, provider, style, image_url,
-                            generation_cost, quality_score, trend_id, metadata
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                        RETURNING id
-                        """,
-                        prompt_config['prompt'],
-                        artwork_result.get('model_key', 'unknown'),
-                        style,
-                        s3_key,  # Store S3 key, not URL
-                        artwork_result.get('generation_cost', 0),
-                        artwork_result.get('quality_score', 0),
-                        trend_id,
-                        artwork_result
-                    )
-                    
-                    # Create product
-                    pricing = STYLE_PRICING.get(style, {'base_price': 44.99})
-                    
-                    product_id = await self.db_pool.fetchval(
-                        """
-                        INSERT INTO products (
-                            sku, title, description, base_price,
-                            artwork_id, category, tags, status
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::product_status)
-                        RETURNING id
-                        """,
-                        f"POD-{datetime.now().strftime('%Y%m%d%H%M%S')}-{artwork_id}",
-                        f"{keyword.title()} - {style.replace('_', ' ').title()} Canvas Art",
-                        f"Premium {style.replace('_', ' ')} artwork featuring {keyword}. High-quality canvas print.",
-                        pricing['base_price'],
-                        artwork_id,
-                        'wall-art',
-                        [keyword, style, 'canvas', 'art'],
-                        'active'
-                    )
-                    
-                    products.append({
-                        'product_id': product_id,
-                        'artwork_id': artwork_id,
-                        'style': style,
-                        'keyword': keyword
-                    })
-                    
-                    logger.info(f"  ✅ Created product: {product_id}")
-                    
-                except Exception as e:
-                    logger.error(f"  ❌ Error generating {style}: {e}")
-                    continue
-            
-            logger.info(f"✅ Generated {len(products)} products for '{keyword}'")
-            return products
-            
-        except Exception as e:
-            logger.error(f"Error generating products for trend {trend_id}: {e}")
-            return []
-    
-    async def batch_generate_from_trends(
-        self,
-        limit: int = 10,
-        min_trend_score: float = 6.0,
-        upscale: bool = False
-    ):
+    async def batch_generate_from_trends(self, trend_ids: List[int], styles_per_trend: int = 8):
         """Generate products for multiple trends"""
-        try:
-            # Get trends without products
-            trends = await self.db_pool.fetch(
-                """
-                SELECT t.id, t.keyword, t.trend_score
-                FROM trends t
-                LEFT JOIN artwork a ON a.trend_id = t.id
-                WHERE a.id IS NULL
-                AND t.trend_score >= $1
-                ORDER BY t.trend_score DESC
-                LIMIT $2
+        logger.info(f"🚀 Batch generating for {len(trend_ids)} trends")
+        
+        results = []
+        for trend_id in trend_ids:
+            trend = await self.db_pool.fetchrow("SELECT * FROM trends WHERE id = $1", trend_id)
+            if trend:
+                products = await self.generate_products_from_trend(trend, styles_per_trend)
+                results.extend(products)
+        
+        return results
+    
+    async def generate_products_from_trend(self, trend: Dict, num_styles: int = 8) -> List[Dict]:
+        """Generate multiple product variations from a single trend"""
+        keyword = trend['keyword']
+        logger.info(f"🎨 Generating {num_styles} products for: {keyword}")
+        
+        styles = [
+            'minimalist',
+            'abstract',
+            'vintage',
+            'watercolor',
+            'line_art',
+            'photography',
+            'typography',
+            'modern'
+        ][:num_styles]
+        
+        products = []
+        
+        for style in styles:
+            try:
+                logger.info(f"  Generating {style} style...")
+                
+                # Generate AI image
+                prompt = f"{keyword}, {style} style, high quality, professional"
+                image_url = await self.ai_generator.generate_image(
+                    prompt=prompt,
+                    style=style,
+                    keyword=keyword
+                )
+                
+                # Upload to S3
+                logger.info(f"  Uploading to S3...")
+                s3_url = await download_and_upload_from_url(
+                    image_url,
+                    f"products/{keyword.replace(' ', '-')}"
+                )
+                
+                # Create product in database
+                # FIX: Convert images to JSON string, not dict
+                images_data = {
+                    'image_url': s3_url,
+                    'style': style,
+                    'keyword': keyword,
+                    'generated_at': datetime.now().isoformat()
+                }
+                images_json = json.dumps(images_data)  # <-- FIX: Convert to JSON string
+                
+                product = await self.db_pool.fetchrow("""
+                    INSERT INTO products (
+                        title,
+                        description,
+                        tags,
+                        category,
+                        trend_id,
+                        style,
+                        images,
+                        status,
+                        created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                    RETURNING *
                 """,
-                min_trend_score,
-                limit
+                    f"{keyword.title()} - {style.title()} Art",
+                    f"Beautiful {style} style artwork featuring {keyword}. Perfect for home decor.",
+                    json.dumps([keyword, style, 'wall art', 'home decor']),
+                    trend.get('category', 'art'),
+                    trend['id'],
+                    style,
+                    images_json,  # <-- FIX: Pass JSON string, not dict
+                    'active'
+                )
+                
+                products.append(dict(product))
+                logger.info(f"  ✓ Created product: {product['id']}")
+                
+            except Exception as e:
+                logger.error(f"  ❌ Error generating {style}: {e}")
+                continue
+        
+        logger.info(f"✅ Generated {len(products)} products for {keyword}")
+        return products
+    
+    async def generate_single_product(
+        self,
+        keyword: str,
+        style: str,
+        category: str = "art"
+    ) -> Optional[Dict]:
+        """Generate a single product"""
+        try:
+            # Generate image
+            prompt = f"{keyword}, {style} style, high quality"
+            image_url = await self.ai_generator.generate_image(
+                prompt=prompt,
+                style=style,
+                keyword=keyword
             )
             
-            if not trends:
-                logger.info("No trends available for generation")
-                return
+            # Upload to S3
+            s3_url = await download_and_upload_from_url(
+                image_url,
+                f"products/{keyword.replace(' ', '-')}"
+            )
             
-            logger.info(f"🚀 Batch generating for {len(trends)} trends")
+            # Create product
+            images_json = json.dumps({'image_url': s3_url})  # JSON string
             
-            for trend in trends:
-                await self.generate_products_from_trend(
-                    trend_id=trend['id'],
-                    upscale=upscale
+            product = await self.db_pool.fetchrow("""
+                INSERT INTO products (
+                    title, description, tags, category,
+                    style, images, status, created_at
                 )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                RETURNING *
+            """,
+                f"{keyword.title()} - {style.title()}",
+                f"{style.title()} style {keyword} artwork",
+                json.dumps([keyword, style]),
+                category,
+                style,
+                images_json,  # JSON string
+                'active'
+            )
             
-            logger.info("✅ Batch generation complete")
+            return dict(product)
             
         except Exception as e:
-            logger.error(f"Error in batch generation: {e}")
+            logger.error(f"Error generating product: {e}")
+            return None
