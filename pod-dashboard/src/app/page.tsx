@@ -2,14 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { 
   DollarSign, ShoppingCart, TrendingUp, Palette, AlertCircle, RefreshCw, 
   Zap, Info, Brain, Image as ImageIcon, ExternalLink, LayoutGrid, 
   Check, X, Trash2, Rocket, Calendar, Settings, Target, Package, ThumbsUp, ThumbsDown,
-  Database
+  Database, Bug, Play
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 
@@ -67,11 +66,23 @@ interface TrendAnalytics {
   }>;
 }
 
+interface ProgressData {
+  success: boolean;
+  total_allocated: number;
+  total_generated: number;
+  remaining: number;
+  progress_percentage: number;
+  completed_keywords: number;
+  in_progress_keywords: number;
+  pending_keywords: number;
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentProducts, setRecentProducts] = useState<Product[]>([]);
   const [genStatus, setGenStatus] = useState<GenerationStatus | null>(null);
   const [trendAnalytics, setTrendAnalytics] = useState<TrendAnalytics | null>(null);
+  const [progress, setProgress] = useState<ProgressData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -105,7 +116,7 @@ export default function DashboardPage() {
       setLoading(true);
       setError(null);
 
-      const [statsResponse, productsResponse, genStatusResponse, analyticsResponse] = await Promise.all([
+      const [statsResponse, productsResponse, genStatusResponse, analyticsResponse, progressResponse] = await Promise.all([
         fetch(`${API_BASE_URL}/analytics/dashboard`).catch(err => {
           console.error('Stats fetch failed:', err);
           return null;
@@ -120,6 +131,10 @@ export default function DashboardPage() {
         }),
         fetch(`${API_BASE_URL}/trends/analytics`).catch(err => {
           console.error('Analytics fetch failed:', err);
+          return null;
+        }),
+        fetch(`${API_BASE_URL}/trends/progress`).catch(err => {
+          console.error('Progress fetch failed:', err);
           return null;
         })
       ]);
@@ -157,6 +172,13 @@ export default function DashboardPage() {
         setTrendAnalytics(analyticsData);
       }
 
+      if (progressResponse?.ok) {
+        const progressData = await progressResponse.json();
+        if (progressData.success) {
+          setProgress(progressData);
+        }
+      }
+
     } catch (err: any) {
       console.error("❌ Fetch error:", err);
       setError(err.message);
@@ -166,30 +188,121 @@ export default function DashboardPage() {
     }
   };
 
+  // === NEW: Priority Setup Functions ===
+  const handleRunMigration = async () => {
+    toast.info("Running database migration...");
+    try {
+      const res = await fetch(`${API_BASE_URL}/trends/run-migration`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(
+          `✅ Migration complete!\nTotal Keywords: ${data.summary.total_keywords}`,
+          { duration: 8000 }
+        );
+        fetchData();
+      } else {
+        throw new Error(data.message || 'Migration failed');
+      }
+    } catch (err: any) {
+      toast.error(`Migration failed: ${err.message}`);
+    }
+  };
+
+  const handleUpdateVolumes = async () => {
+    toast.info("Updating search volumes...");
+    try {
+      const res = await fetch(`${API_BASE_URL}/trends/update-search-volumes`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(`✅ Updated ${data.updated} keywords with search volumes!`);
+        fetchData();
+      } else {
+        throw new Error(data.message || 'Update failed');
+      }
+    } catch (err: any) {
+      toast.error(`Update failed: ${err.message}`);
+    }
+  };
+
+  const handleCalculateAllocations = async () => {
+    toast.info("Calculating smart allocations for 10K designs...");
+    try {
+      const res = await fetch(`${API_BASE_URL}/trends/calculate-allocations?target_designs=10000`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(
+          `✅ Allocated ${data.total_allocated} designs across ${data.keywords_with_allocation} keywords!`,
+          { duration: 8000 }
+        );
+        fetchData();
+      } else {
+        throw new Error(data.message || 'Allocation failed');
+      }
+    } catch (err: any) {
+      toast.error(`Allocation failed: ${err.message}`);
+    }
+  };
+
+  const handleCheckProgress = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/trends/progress`);
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setProgress(data);
+        toast(
+          `📊 Progress: ${data.progress_percentage}%\n${data.total_generated.toLocaleString()}/${data.total_allocated.toLocaleString()} designs`,
+          {
+            icon: <Info className="h-4 w-4" />,
+            duration: 6000
+          }
+        );
+      } else {
+        throw new Error(data.message || 'Failed to fetch progress');
+      }
+    } catch (err: any) {
+      toast.error(`Progress check failed: ${err.message}`);
+    }
+  };
+
+  const handleDebugGallery = async () => {
+    toast.info("Running gallery debug...");
+    try {
+      const res = await fetch(`${API_BASE_URL}/trends/debug-gallery`);
+      const data = await res.json();
+      console.log('🐞 Gallery Debug:', data);
+      
+      let statusMsg = `Total: ${data.total_products}, With Images: ${data.with_images}\n`;
+      if (data.by_status) {
+        data.by_status.forEach((s: any) => {
+          statusMsg += `${s.status}: ${s.count}\n`;
+        });
+      }
+      
+      toast(
+        `🐞 Debug complete! See console for details.\n${statusMsg}`,
+        { duration: 8000 }
+      );
+    } catch (err: any) {
+      toast.error(`Debug failed: ${err.message}`);
+    }
+  };
+
+  // === Existing functions (approve, reject, etc.) ===
   const approveProduct = async (productId: number) => {
     try {
       hiddenProductIds.current.add(productId);
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
-      
       const response = await fetch(`${API_BASE_URL}/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          product_id: productId,
-          action: 'approve'
-        })
+        body: JSON.stringify({ product_id: productId, action: 'approve' })
       });
-
       if (!response.ok) {
         hiddenProductIds.current.delete(productId);
         await fetchData();
         throw new Error('Approval failed');
       }
-
-      toast.success(`Product approved for Shopify!`, {
-        icon: <Check className="h-4 w-4" />
-      });
-      
+      toast.success(`Product approved for Shopify!`, { icon: <Check className="h-4 w-4" /> });
     } catch (err: any) {
       toast.error(`Approval failed: ${err.message}`);
     }
@@ -199,26 +312,17 @@ export default function DashboardPage() {
     try {
       hiddenProductIds.current.add(productId);
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
-      
       const response = await fetch(`${API_BASE_URL}/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          product_id: productId,
-          action: 'reject'
-        })
+        body: JSON.stringify({ product_id: productId, action: 'reject' })
       });
-
       if (!response.ok) {
         hiddenProductIds.current.delete(productId);
         await fetchData();
         throw new Error('Rejection failed');
       }
-      
-      toast.success(`Product rejected and deleted from S3`, {
-        icon: <ThumbsDown className="h-4 w-4" />
-      });
-      
+      toast.success(`Product rejected and deleted from S3`, { icon: <ThumbsDown className="h-4 w-4" /> });
     } catch (err: any) {
       toast.error(`Rejection failed: ${err.message}`);
     }
@@ -227,17 +331,10 @@ export default function DashboardPage() {
   const loadInitialKeywords = async () => {
     setIsLoadingKeywords(true);
     toast.info("🚀 Loading initial keyword database (1,250+ keywords)...");
-
     try {
-      const response = await fetch(`${API_BASE_URL}/trends/load-initial-keywords`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
+      const response = await fetch(`${API_BASE_URL}/trends/load-initial-keywords`, { method: 'POST' });
       if (!response.ok) throw new Error('Failed to load keywords');
-
       const data = await response.json();
-      
       if (data.success) {
         toast.success(
           `✅ Loaded ${data.keywords_loaded} keywords across ${data.categories} categories! Ready for ${data.expected_skus} SKUs`,
@@ -247,7 +344,6 @@ export default function DashboardPage() {
       } else {
         toast.error(data.message || "Load failed");
       }
-
     } catch (err: any) {
       toast.error(`Keyword load failed: ${err.message}`);
     } finally {
@@ -258,16 +354,10 @@ export default function DashboardPage() {
   const launch10KInitial = async () => {
     setIsLaunching10K(true);
     toast.info("🚀 Launching 10K initial keyword strategy...");
-
     try {
-      const response = await fetch(`${API_BASE_URL}/trends/fetch-10k-initial`, {
-        method: 'POST'
-      });
-
+      const response = await fetch(`${API_BASE_URL}/trends/fetch-10k-initial`, { method: 'POST' });
       if (!response.ok) throw new Error('Failed to launch 10K strategy');
-
       const data = await response.json();
-      
       if (data.success) {
         toast.success(
           `10K Strategy Launched! ${data.keywords_stored} keywords stored. Total designs: ${data.total_designs_planned}`,
@@ -277,7 +367,6 @@ export default function DashboardPage() {
       } else {
         toast.error(data.message || "Launch failed");
       }
-
     } catch (err: any) {
       toast.error(`10K launch failed: ${err.message}`);
     } finally {
@@ -288,24 +377,16 @@ export default function DashboardPage() {
   const fetchTrends = async () => {
     setIsFetchingTrends(true);
     toast.info("🔍 Fetching trending keywords...");
-
     try {
-      const response = await fetch(`${API_BASE_URL}/trends/fetch?region=GB&limit=20`, {
-        method: 'POST'
-      });
-
+      const response = await fetch(`${API_BASE_URL}/trends/fetch?region=GB&limit=20`, { method: 'POST' });
       if (!response.ok) throw new Error('Failed to fetch trends');
-
       const data = await response.json();
-      
       if (data.success) {
         toast.success(`${data.message} - ${data.trends_stored} keywords stored`, { duration: 5000 });
       } else {
         toast.warning(data.message || "No new trends found");
       }
-      
       setTimeout(fetchData, 2000);
-
     } catch (err: any) {
       toast.error(`Trend fetch failed: ${err.message}`);
     } finally {
@@ -332,10 +413,8 @@ export default function DashboardPage() {
   const generateProducts = async (customTrendCount?: number) => {
     const trendsCount = customTrendCount || trendsToGenerate;
     setIsGenerating(true);
-    
     const modeLabel = testingMode ? 'Testing' : budgetMode;
     toast.info(`Starting generation: ${trendsCount * 8} products (${modeLabel} mode)...`);
-
     try {
       const response = await fetch(`${API_BASE_URL}/generation/batch-generate`, {
         method: 'POST',
@@ -348,16 +427,12 @@ export default function DashboardPage() {
           upscale: false
         })
       });
-
       if (!response.ok) throw new Error('Generation failed');
-
       const data = await response.json();
       toast.success(`Generating ${data.expected_products} products! Cost: ${data.estimated_cost}`, { duration: 8000 });
-      
       setTimeout(fetchData, 10000);
       setTimeout(fetchData, 30000);
       setTimeout(fetchData, 60000);
-
     } catch (err: any) {
       toast.error(`Generation failed: ${err.message}`);
     } finally {
@@ -365,20 +440,16 @@ export default function DashboardPage() {
     }
   };
 
-  // Initial fetch and polling
   useEffect(() => {
     fetchData();
-    
     const pollInterval = setInterval(() => {
       if (!isGenerating && !fetchInProgress.current) {
         fetchData();
       }
     }, 30000);
-    
     return () => clearInterval(pollInterval);
   }, [isGenerating]);
 
-  // Auto-generation polling
   useEffect(() => {
     if (autoGeneration && !isGenerating && genStatus) {
       const interval = setInterval(() => {
@@ -387,7 +458,6 @@ export default function DashboardPage() {
           generateProducts(dailyCalc.trendsNeeded);
         }
       }, 3600000);
-      
       return () => clearInterval(interval);
     }
   }, [autoGeneration, isGenerating, genStatus, dailyGenerationTarget]);
@@ -446,6 +516,63 @@ export default function DashboardPage() {
           </div>
         </header>
 
+        {/* === NEW: Priority Setup Section === */}
+        <Card className="border-blue-500">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Play className="h-5 w-5 text-blue-600" />
+              Priority Generation Setup
+            </CardTitle>
+            <CardDescription>
+              Run these steps in order (0 → 1 → 2). Then use 3 to check progress anytime.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              <Button onClick={handleRunMigration} variant="outline" className="flex flex-col items-start h-auto p-3">
+                <span className="font-medium">0️⃣ Run Migration</span>
+                <span className="text-xs text-muted-foreground mt-1">Adds tracking columns</span>
+              </Button>
+              <Button onClick={handleUpdateVolumes} variant="outline" className="flex flex-col items-start h-auto p-3">
+                <span className="font-medium">1️⃣ Update Volumes</span>
+                <span className="text-xs text-muted-foreground mt-1">Assigns search volumes</span>
+              </Button>
+              <Button onClick={handleCalculateAllocations} variant="outline" className="flex flex-col items-start h-auto p-3">
+                <span className="font-medium">2️⃣ Calculate Allocations</span>
+                <span className="text-xs text-muted-foreground mt-1">Distributes 10K designs</span>
+              </Button>
+              <Button onClick={handleCheckProgress} variant="outline" className="flex flex-col items-start h-auto p-3">
+                <span className="font-medium">3️⃣ Check Progress</span>
+                <span className="text-xs text-muted-foreground mt-1">Shows current status</span>
+              </Button>
+              <Button onClick={handleDebugGallery} variant="outline" className="flex flex-col items-start h-auto p-3">
+                <span className="font-medium">🐞 Debug Gallery</span>
+                <span className="text-xs text-muted-foreground mt-1">Troubleshoot issues</span>
+              </Button>
+            </div>
+
+            {progress && (
+              <div className="mt-4 pt-4 border-t">
+                <div className="flex justify-between text-sm mb-1">
+                  <span>Progress: {progress.progress_percentage.toFixed(1)}%</span>
+                  <span>{progress.total_generated.toLocaleString()} / {progress.total_allocated.toLocaleString()}</span>
+                </div>
+                <div className="w-full bg-muted rounded-full h-2">
+                  <div 
+                    className="bg-primary rounded-full h-2 transition-all duration-500"
+                    style={{ width: `${progress.progress_percentage}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                  <span>✅ {progress.completed_keywords}</span>
+                  <span>🔄 {progress.in_progress_keywords}</span>
+                  <span>⏳ {progress.pending_keywords}</span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {showSettings && (
           <Card className="border-orange-500">
             <CardHeader>
@@ -472,7 +599,6 @@ export default function DashboardPage() {
                     ))}
                   </div>
                 </div>
-                
                 <div>
                   <label className="text-sm font-medium mb-2 block">Auto-Generation</label>
                   <Button
@@ -483,7 +609,6 @@ export default function DashboardPage() {
                     {autoGeneration ? 'Enabled' : 'Disabled'}
                   </Button>
                 </div>
-                
                 <div className="text-sm space-y-1">
                   <p><strong>Daily:</strong> {dailyCalc.trendsNeeded} trends = {dailyGenerationTarget} designs</p>
                   <p><strong>Cost:</strong> £{dailyCalc.dailyCost.toFixed(2)}/day</p>
@@ -516,7 +641,6 @@ export default function DashboardPage() {
                     <li>• Instant database load</li>
                   </ul>
                 </div>
-                
                 <div className="space-y-2">
                   <h4 className="font-semibold">Categories Include:</h4>
                   <ul className="text-sm space-y-1">
@@ -526,7 +650,6 @@ export default function DashboardPage() {
                     <li>• Animals, Holidays, Cities...</li>
                   </ul>
                 </div>
-                
                 <div className="space-y-2">
                   <h4 className="font-semibold">Ready to Launch:</h4>
                   <p className="text-sm">Click below to load keywords into your database</p>
@@ -575,7 +698,6 @@ export default function DashboardPage() {
                     <li>• Ready for generation</li>
                   </ul>
                 </div>
-                
                 <div className="space-y-2">
                   <h4 className="font-semibold">Categories:</h4>
                   <ul className="text-sm space-y-1">
@@ -585,7 +707,6 @@ export default function DashboardPage() {
                     <li>• Plus many more...</li>
                   </ul>
                 </div>
-                
                 <div className="space-y-2">
                   <h4 className="font-semibold">Launch Strategy:</h4>
                   <p className="text-sm">Automated keyword expansion</p>
@@ -847,109 +968,6 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* ✅ Maintenance & Analytics Buttons */}
-                <div className="col-span-full">
-                  <label className="text-sm font-medium mb-2 block">Maintenance & Analytics</label>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      onClick={async () => {
-                        toast.info("Running database migration...");
-                        try {
-                          const res = await fetch(`${API_BASE_URL}/trends/run-migration`, { method: 'POST' });
-                          const data = await res.json();
-                          if (res.ok && data.summary?.total_keywords) {
-                            toast.success(
-                              `✅ Migration complete! ${data.summary.total_keywords} keywords ready.`,
-                              { duration: 6000 }
-                            );
-                            setTimeout(fetchData, 1500);
-                          } else {
-                            throw new Error(data.message || 'Migration failed');
-                          }
-                        } catch (err: any) {
-                          toast.error(`Migration failed: ${err.message}`);
-                        }
-                      }}
-                      size="sm"
-                      variant="outline"
-                      className="bg-yellow-50 hover:bg-yellow-100 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/40"
-                    >
-                      <Database className="h-3 w-3 mr-1" />
-                      0️⃣ Run Migration
-                    </Button>
-
-                    <Button
-                      onClick={async () => {
-                        toast.info("Updating search volumes...");
-                        try {
-                          const res = await fetch(`${API_BASE_URL}/trends/update-search-volumes`, { method: 'POST' });
-                          const data = await res.json();
-                          if (res.ok && data.updated) {
-                            toast.success(`✅ Updated ${data.updated} keywords with fresh search volumes!`);
-                            setTimeout(fetchData, 1000);
-                          } else {
-                            throw new Error(data.message || 'Update failed');
-                          }
-                        } catch (err: any) {
-                          toast.error(`Failed to update volumes: ${err.message}`);
-                        }
-                      }}
-                      size="sm"
-                      variant="outline"
-                    >
-                      <RefreshCw className="h-3 w-3 mr-1" />
-                      Update Search Volumes
-                    </Button>
-
-                    <Button
-                      onClick={async () => {
-                        toast.info("Calculating design allocations...");
-                        try {
-                          const res = await fetch(`${API_BASE_URL}/trends/calculate-allocations?target_designs=10000`, { method: 'POST' });
-                          const data = await res.json();
-                          if (res.ok && data.total_allocated !== undefined) {
-                            toast.success(`✅ Allocated ${data.total_allocated} designs across ${data.categories_used} categories!`);
-                            setTimeout(fetchData, 1000);
-                          } else {
-                            throw new Error(data.message || 'Allocation failed');
-                          }
-                        } catch (err: any) {
-                          toast.error(`Allocation failed: ${err.message}`);
-                        }
-                      }}
-                      size="sm"
-                      variant="outline"
-                    >
-                      <Target className="h-3 w-3 mr-1" />
-                      Calculate Allocations
-                    </Button>
-
-                    <Button
-                      onClick={async () => {
-                        try {
-                          const res = await fetch(`${API_BASE_URL}/trends/progress`);
-                          const data = await res.json();
-                          if (res.ok) {
-                            toast(`📊 Progress: ${data.progress_percentage}% (${data.total_generated}/${data.total_allocated} designs)`, {
-                              icon: <Info className="h-4 w-4" />,
-                              duration: 5000
-                            });
-                          } else {
-                            throw new Error(data.message || 'Failed to fetch progress');
-                          }
-                        } catch (err: any) {
-                          toast.error(`Progress check failed: ${err.message}`);
-                        }
-                      }}
-                      size="sm"
-                      variant="outline"
-                    >
-                      <Info className="h-3 w-3 mr-1" />
-                      Check Progress
-                    </Button>
-                  </div>
-                </div>
-                
                 <div className="text-xs text-muted-foreground bg-muted p-3 rounded-lg grid grid-cols-2 gap-2">
                   <div>
                     <p className="font-semibold">Current Batch:</p>
