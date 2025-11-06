@@ -64,19 +64,36 @@ class ProductGenerator:
                     keyword=keyword
                 )
                 
-                # Extract the URL string from the result dict
-                image_url = result['image_url']
-                
-                # Upload to S3
-                logger.info(f"  Uploading to S3...")
-                s3_url = await download_and_upload_from_url(
-                    image_url,
-                    f"products/{keyword.replace(' ', '-')}"
-                )
+               # ✅ CRITICAL FIX: Validate result first
+if not isinstance(result, dict):
+    logger.error(f"  ❌ AI result is not a dict! Type: {type(result)}")
+    continue
+
+# Extract the URL string from the result dict
+image_url = result.get('image_url')
+
+if not image_url or not isinstance(image_url, str):
+    logger.error(f"  ❌ Invalid image_url! Type: {type(image_url)}, Value: {image_url}")
+    continue
+
+logger.info(f"  ✅ Got image URL: {image_url[:100]}...")
+
+# Upload to S3
+logger.info(f"  📤 Uploading to S3...")
+s3_key = await download_and_upload_from_url(
+    image_url,
+    f"products/{keyword.replace(' ', '-')}"
+)
+
+if not s3_key:
+    logger.error(f"  ❌ S3 upload failed!")
+    continue
+
+logger.info(f"  ✅ S3 key: {s3_key}")
                 
                 # ✅ FIX: Convert images dict to JSON string before INSERT
                 images_json = json.dumps({
-                    'image_url': s3_url,
+                    'image_url': s3_key,
                     'style': style,
                     'keyword': keyword,
                     'generated_at': datetime.now().isoformat()
@@ -137,13 +154,13 @@ class ProductGenerator:
             image_url = result['image_url']
             
             # Upload to S3
-            s3_url = await download_and_upload_from_url(
+            s3_key = await download_and_upload_from_url(
                 image_url,
                 f"products/{keyword.replace(' ', '-')}"
             )
             
             # ✅ FIX: Convert to JSON string
-            images_json = json.dumps({'image_url': s3_url})
+            images_json = json.dumps({'image_url': s3_key})
             
             # Create product
             product = await self.db_pool.fetchrow("""
