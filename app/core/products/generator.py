@@ -136,7 +136,7 @@ class ProductGenerator:
             )
             
             # Create product
-            images_json = json.dumps({'image_url': s3_url})  # JSON string
+            images_json = json.dumps({'image_url': s3_url})  # fixed  # JSON string
             
             product = await self.db_pool.fetchrow("""
                 INSERT INTO products (
