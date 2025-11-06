@@ -1,14 +1,10 @@
-# COMPLETE app/core/products/generator.py WITH FIX
-# Replace your current generator.py with this
-
 import logging
 import json
 from typing import Dict, List, Optional
 from datetime import datetime
 
 from app.database import DatabasePool
-from app.core.ai.generator import AIGenerator
-from app.utils.s3_storage import upload_image, download_and_upload_from_url
+from app.utils.s3_storage import download_and_upload_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +12,15 @@ logger = logging.getLogger(__name__)
 class ProductGenerator:
     def __init__(self, db_pool: DatabasePool):
         self.db_pool = db_pool
-        self.ai_generator = AIGenerator()
+        self._ai_generator = None
+    
+    @property
+    def ai_generator(self):
+        """Lazy load to avoid circular import"""
+        if self._ai_generator is None:
+            from app.core.ai.generator import get_ai_generator
+            self._ai_generator = get_ai_generator()
+        return self._ai_generator
     
     async def batch_generate_from_trends(self, trend_ids: List[int], styles_per_trend: int = 8):
         """Generate products for multiple trends"""
@@ -44,7 +48,7 @@ class ProductGenerator:
             'line_art',
             'photography',
             'typography',
-            'modern'
+            'botanical'
         ][:num_styles]
         
         products = []
@@ -53,13 +57,15 @@ class ProductGenerator:
             try:
                 logger.info(f"  Generating {style} style...")
                 
-                # Generate AI image
-                prompt = f"{keyword}, {style} style, high quality, professional"
-                image_url = await self.ai_generator.generate_image(
-                    prompt=prompt,
+                # Generate AI image - returns a dict with 'image_url' key
+                result = await self.ai_generator.generate_image(
+                    prompt=f"{keyword}, {style} style, high quality, professional",
                     style=style,
                     keyword=keyword
                 )
+                
+                # Extract the URL string from the result dict
+                image_url = result['image_url']
                 
                 # Upload to S3
                 logger.info(f"  Uploading to S3...")
@@ -68,16 +74,15 @@ class ProductGenerator:
                     f"products/{keyword.replace(' ', '-')}"
                 )
                 
-                # Create product in database
-                # FIX: Convert images to JSON string, not dict
-                images_data = {
+                # ✅ FIX: Convert images dict to JSON string before INSERT
+                images_json = json.dumps({
                     'image_url': s3_url,
                     'style': style,
                     'keyword': keyword,
                     'generated_at': datetime.now().isoformat()
-                }
-                images_json = json.dumps(images_data)  # <-- FIX: Convert to JSON string
+                })
                 
+                # Create product in database
                 product = await self.db_pool.fetchrow("""
                     INSERT INTO products (
                         title,
@@ -99,7 +104,7 @@ class ProductGenerator:
                     trend.get('category', 'art'),
                     trend['id'],
                     style,
-                    images_json,  # <-- FIX: Pass JSON string, not dict
+                    images_json,  # ✅ FIXED: Pass JSON string, not dict
                     'active'
                 )
                 
@@ -121,13 +126,15 @@ class ProductGenerator:
     ) -> Optional[Dict]:
         """Generate a single product"""
         try:
-            # Generate image
-            prompt = f"{keyword}, {style} style, high quality"
-            image_url = await self.ai_generator.generate_image(
-                prompt=prompt,
+            # Generate image - returns dict with 'image_url' key
+            result = await self.ai_generator.generate_image(
+                prompt=f"{keyword}, {style} style, high quality",
                 style=style,
                 keyword=keyword
             )
+            
+            # Extract URL string
+            image_url = result['image_url']
             
             # Upload to S3
             s3_url = await download_and_upload_from_url(
@@ -135,9 +142,10 @@ class ProductGenerator:
                 f"products/{keyword.replace(' ', '-')}"
             )
             
-            # Create product
-            images_json = json.dumps({'image_url': s3_url})  # fixed  # JSON string
+            # ✅ FIX: Convert to JSON string
+            images_json = json.dumps({'image_url': s3_url})
             
+            # Create product
             product = await self.db_pool.fetchrow("""
                 INSERT INTO products (
                     title, description, tags, category,
@@ -151,7 +159,7 @@ class ProductGenerator:
                 json.dumps([keyword, style]),
                 category,
                 style,
-                images_json,  # JSON string
+                images_json,  # ✅ FIXED: JSON string
                 'active'
             )
             
