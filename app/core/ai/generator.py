@@ -4,7 +4,6 @@ from typing import Dict, List, Optional
 from datetime import datetime
 
 from app.database import DatabasePool
-from app.core.ai.generator import AIArtGenerator  # ✅ FIXED: Correct class name
 from app.utils.s3_storage import upload_image, download_and_upload_from_url
 
 logger = logging.getLogger(__name__)
@@ -13,7 +12,16 @@ logger = logging.getLogger(__name__)
 class ProductGenerator:
     def __init__(self, db_pool: DatabasePool):
         self.db_pool = db_pool
-        self.ai_generator = AIArtGenerator()  # ✅ FIXED: Correct class name
+        # ✅ FIXED: Lazy import to avoid circular import
+        self._ai_generator = None
+    
+    @property
+    def ai_generator(self):
+        """Lazy load AI generator to avoid circular import"""
+        if self._ai_generator is None:
+            from app.core.ai.generator import get_ai_generator
+            self._ai_generator = get_ai_generator()
+        return self._ai_generator
     
     async def batch_generate_from_trends(self, trend_ids: List[int], styles_per_trend: int = 8):
         """Generate products for multiple trends"""
@@ -58,7 +66,7 @@ class ProductGenerator:
                 )
                 
                 # Extract URL from result
-                image_url = result['image_url']  # ✅ This is already a string
+                image_url = result['image_url']  # This is already a string
                 
                 # Upload to S3
                 logger.info(f"  Uploading to S3...")
