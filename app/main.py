@@ -7,6 +7,7 @@ import sys
 from app.config import settings
 from app.database import db_pool
 from app.utils.cache import redis_client
+from app.api.v1 import debug  # Add this to your imports
 
 # Configure logging
 logger.remove()
