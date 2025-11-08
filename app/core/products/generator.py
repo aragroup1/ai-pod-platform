@@ -80,16 +80,18 @@ logger.info(f"  ✅ Got image URL: {image_url[:100]}...")
 
 # Upload to S3
 logger.info(f"  📤 Uploading to S3...")
-s3_key = await download_and_upload_from_url(
-    image_url,
-    f"products/{keyword.replace(' ', '-')}"
+from app.utils.s3_storage import get_storage_manager
+storage = get_storage_manager()
+s3_key = await storage.download_and_upload_from_url(
+    source_url=image_url,
+    folder=f"products/{keyword.replace(' ', '-')}"
 )
 
 if not s3_key:
     logger.error(f"  ❌ S3 upload failed!")
     continue
 
-logger.info(f"  ✅ S3 key: {s3_key}")
+logger.info(f"  ✅ S3 uploaded: {s3_key}")
                 
                 # ✅ FIX: Convert images dict to JSON string before INSERT
                 images_json = json.dumps({
