@@ -5,7 +5,7 @@ import json
 from app.database import DatabasePool
 from app.dependencies import get_db_pool
 from app.core.ai.generator import get_ai_generator
-from app.utils.s3_storage import download_and_upload_from_url
+from app.utils.s3_storage import get_storage_manager  # ✅ FIXED IMPORT
 
 router = APIRouter()
 
@@ -47,7 +47,8 @@ async def test_generation(db_pool: DatabasePool = Depends(get_db_pool)):
         # Step 2: Test S3 upload
         logger.info(f"Step 2: Uploading to S3 from: {image_url[:100]}")
         
-        s3_key = await download_and_upload_from_url(
+        storage = get_storage_manager()  # ✅ FIXED
+        s3_key = await storage.download_and_upload_from_url(  # ✅ FIXED
             source_url=image_url,
             folder="debug-test"
         )
