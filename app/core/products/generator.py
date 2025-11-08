@@ -92,15 +92,40 @@ class ProductGenerator:
 
                 logger.info(f"  ✅ S3 uploaded: {s3_key}")
                 
-                # ✅ FIX: Convert images dict to JSON string before INSERT
-                images_json = json.dumps({
-                    'image_url': s3_key,
-                    'style': style,
-                    'keyword': keyword,
-                    'generated_at': datetime.now().isoformat()
-                })
+                # ✅ CRITICAL FIX: Create artwork record FIRST
+                artwork = await self.db_pool.fetchrow("""
+                    INSERT INTO artwork (
+                        prompt,
+                        provider,
+                        style,
+                        image_url,
+                        generation_cost,
+                        quality_score,
+                        trend_id,
+                        created_at,
+                        metadata
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
+                    RETURNING *
+                """,
+                    result.get('prompt', f"{keyword} {style} style"),
+                    result.get('provider', result.get('model_used', 'replicate')),
+                    style,
+                    s3_key,  # ✅ Store S3 key in artwork table
+                    result.get('generation_cost', 0.003),
+                    result.get('quality_score', 8.0),
+                    trend['id'],
+                    json.dumps({
+                        'model_key': result.get('model_key'),
+                        'model_used': result.get('model_used'),
+                        'keyword': keyword,
+                        'generated_at': datetime.now().isoformat()
+                    })
+                )
                 
-                # Create product in database
+                logger.info(f"  ✅ Created artwork record ID: {artwork['id']}")
+                
+                # ✅ Now create product linked to artwork
                 product = await self.db_pool.fetchrow("""
                     INSERT INTO products (
                         title,
@@ -109,11 +134,12 @@ class ProductGenerator:
                         category,
                         trend_id,
                         style,
-                        images,
+                        artwork_id,
+                        base_price,
                         status,
                         created_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
                     RETURNING *
                 """,
                     f"{keyword.title()} - {style.title()} Art",
@@ -122,15 +148,17 @@ class ProductGenerator:
                     trend.get('category', 'art'),
                     trend['id'],
                     style,
-                    images_json,  # ✅ FIXED: Pass JSON string, not dict
+                    artwork['id'],  # ✅ Link to artwork record
+                    19.99,  # Default base price
                     'active'
                 )
                 
                 products.append(dict(product))
-                logger.info(f"  ✓ Created product: {product['id']}")
+                logger.info(f"  ✓ Created product: {product['id']} with artwork: {artwork['id']}")
                 
             except Exception as e:
                 logger.error(f"  ❌ Error generating {style}: {e}")
+                logger.exception("Full traceback:")
                 continue
         
         logger.info(f"✅ Generated {len(products)} products for {keyword}")
@@ -162,16 +190,31 @@ class ProductGenerator:
                 folder=f"products/{keyword.replace(' ', '-')}"
             )
             
-            # ✅ FIX: Convert to JSON string
-            images_json = json.dumps({'image_url': s3_key})
+            # ✅ Create artwork record first
+            artwork = await self.db_pool.fetchrow("""
+                INSERT INTO artwork (
+                    prompt, provider, style, image_url,
+                    generation_cost, quality_score, created_at, metadata
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)
+                RETURNING *
+            """,
+                f"{keyword} {style} style",
+                result.get('provider', 'replicate'),
+                style,
+                s3_key,
+                result.get('generation_cost', 0.003),
+                result.get('quality_score', 8.0),
+                json.dumps({'keyword': keyword})
+            )
             
-            # Create product
+            # ✅ Create product linked to artwork
             product = await self.db_pool.fetchrow("""
                 INSERT INTO products (
                     title, description, tags, category,
-                    style, images, status, created_at
+                    style, artwork_id, base_price, status, created_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
                 RETURNING *
             """,
                 f"{keyword.title()} - {style.title()}",
@@ -179,7 +222,8 @@ class ProductGenerator:
                 json.dumps([keyword, style]),
                 category,
                 style,
-                images_json,  # ✅ FIXED: JSON string
+                artwork['id'],  # ✅ Link to artwork
+                19.99,
                 'active'
             )
             
@@ -187,4 +231,5 @@ class ProductGenerator:
             
         except Exception as e:
             logger.error(f"Error generating product: {e}")
+            logger.exception("Full traceback:")
             return None
