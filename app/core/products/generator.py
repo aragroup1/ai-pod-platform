@@ -64,34 +64,34 @@ class ProductGenerator:
                     keyword=keyword
                 )
                 
-               # ✅ CRITICAL FIX: Validate result first
-if not isinstance(result, dict):
-    logger.error(f"  ❌ AI result is not a dict! Type: {type(result)}")
-    continue
+                # ✅ CRITICAL FIX: Validate result first
+                if not isinstance(result, dict):
+                    logger.error(f"  ❌ AI result is not a dict! Type: {type(result)}")
+                    continue
 
-# Extract the URL string from the result dict
-image_url = result.get('image_url')
+                # Extract the URL string from the result dict
+                image_url = result.get('image_url')
 
-if not image_url or not isinstance(image_url, str):
-    logger.error(f"  ❌ Invalid image_url! Type: {type(image_url)}, Value: {image_url}")
-    continue
+                if not image_url or not isinstance(image_url, str):
+                    logger.error(f"  ❌ Invalid image_url! Type: {type(image_url)}, Value: {image_url}")
+                    continue
 
-logger.info(f"  ✅ Got image URL: {image_url[:100]}...")
+                logger.info(f"  ✅ Got image URL: {image_url[:100]}...")
 
-# Upload to S3
-logger.info(f"  📤 Uploading to S3...")
-from app.utils.s3_storage import get_storage_manager
-storage = get_storage_manager()
-s3_key = await storage.download_and_upload_from_url(
-    source_url=image_url,
-    folder=f"products/{keyword.replace(' ', '-')}"
-)
+                # Upload to S3
+                logger.info(f"  📤 Uploading to S3...")
+                from app.utils.s3_storage import get_storage_manager
+                storage = get_storage_manager()
+                s3_key = await storage.download_and_upload_from_url(
+                    source_url=image_url,
+                    folder=f"products/{keyword.replace(' ', '-')}"
+                )
 
-if not s3_key:
-    logger.error(f"  ❌ S3 upload failed!")
-    continue
+                if not s3_key:
+                    logger.error(f"  ❌ S3 upload failed!")
+                    continue
 
-logger.info(f"  ✅ S3 uploaded: {s3_key}")
+                logger.info(f"  ✅ S3 uploaded: {s3_key}")
                 
                 # ✅ FIX: Convert images dict to JSON string before INSERT
                 images_json = json.dumps({
