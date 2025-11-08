@@ -4,7 +4,6 @@ from typing import Dict, List, Optional
 from datetime import datetime
 
 from app.database import DatabasePool
-from app.utils.s3_storage import download_and_upload_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +155,11 @@ class ProductGenerator:
             image_url = result['image_url']
             
             # Upload to S3
-            s3_key = await download_and_upload_from_url(
-                image_url,
-                f"products/{keyword.replace(' ', '-')}"
+            from app.utils.s3_storage import get_storage_manager
+            storage = get_storage_manager()
+            s3_key = await storage.download_and_upload_from_url(
+                source_url=image_url,
+                folder=f"products/{keyword.replace(' ', '-')}"
             )
             
             # ✅ FIX: Convert to JSON string
