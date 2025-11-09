@@ -1,5 +1,5 @@
 # app/api/v1/generation.py
-# COMPLETE FIXED VERSION - With correct method name
+# FINAL FIXED VERSION - Pass dict instead of object to generator
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -58,19 +58,12 @@ async def batch_generate_products(
             try:
                 logger.info(f"📊 Generating for: {trend['keyword']} (volume: {trend['search_volume']:,})")
                 
-                # Create a trend object that the generator expects
-                class TrendObj:
-                    def __init__(self, row):
-                        self.id = row['id']
-                        self.keyword = row['keyword']
-                        self.search_volume = row['search_volume']
-                        self.category = row['category']
+                # ✅ FIXED: Pass dict directly, not an object
+                # The generate_products_from_trend expects a dict with 'id', 'keyword', etc.
+                trend_dict = dict(trend)  # Convert asyncpg Record to dict
                 
-                trend_obj = TrendObj(trend)
-                
-                # ✅ FIXED: Use the correct method name
                 products = await generator.generate_products_from_trend(
-                    trend=trend_obj,
+                    trend=trend_dict,
                     num_styles=request.max_designs_per_keyword
                 )
                 
