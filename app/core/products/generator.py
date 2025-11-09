@@ -187,7 +187,7 @@ class ProductGenerator:
             storage = get_storage_manager()
             s3_key = await storage.download_and_upload_from_url(
                 source_url=image_url,
-                folder=f"products/{keyword.replace(' ', '-')}"
+                 folder='products/generated',
             )
             
             # ✅ Create artwork record first
