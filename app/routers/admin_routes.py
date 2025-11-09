@@ -11,6 +11,47 @@ logger = logging.getLogger(__name__)
 
 # Replace clean-duplicate-keywords in admin_routes.py
 
+# Add to app/routers/admin_routes.py
+
+@router.post("/activate-all-trends")
+async def activate_all_trends():
+    """
+    Sets status='active' for all trends that have search volumes.
+    This makes them available for product generation.
+    """
+    try:
+        from app.database import get_db_pool
+        
+        pool = await get_db_pool()
+        
+        # Update all trends with volumes to active status
+        result = await pool.execute("""
+            UPDATE trends
+            SET status = 'active'
+            WHERE search_volume IS NOT NULL 
+            AND search_volume > 0
+            AND (status IS NULL OR status != 'active')
+        """)
+        
+        # Get count
+        updated_count = int(result.split()[-1]) if result.startswith('UPDATE') else 0
+        
+        # Get total active trends now
+        total_active = await pool.fetchval("""
+            SELECT COUNT(*) FROM trends WHERE status = 'active'
+        """)
+        
+        return {
+            "success": True,
+            "updated": updated_count,
+            "total_active": total_active,
+            "message": f"Activated {updated_count} trends. Total active: {total_active}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error activating trends: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/clean-duplicate-keywords")
 async def clean_duplicate_keywords():
     """
