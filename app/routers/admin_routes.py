@@ -13,7 +13,9 @@ logger = logging.getLogger(__name__)
 
 # Add to app/routers/admin_routes.py
 
-@router.post("/activate-all-trends")
+# Replace in app/routers/admin_routes.py - change POST to GET
+
+@router.get("/activate-all-trends")  # Changed to GET so you can use browser
 async def activate_all_trends():
     """
     Sets status='active' for all trends that have search volumes.
