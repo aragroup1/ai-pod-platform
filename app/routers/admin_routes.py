@@ -1,13 +1,14 @@
 # app/routers/admin_routes.py
-# Fixed version - imports SQLAlchemy inside functions
+# Uses async session instead of engine to avoid SQLAlchemy compatibility issues
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 import logging
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-@router.post("/link-artwork-to-products")
+
+@router.get("/link-artwork-to-products")  # Changed to GET so browser works
 async def link_artwork_to_products():
     """
     Links existing artwork to products by matching:
@@ -15,13 +16,14 @@ async def link_artwork_to_products():
     2. Style keywords in product title/tags
     """
     try:
-        # Import inside function to avoid module-level SQLAlchemy issues
-        from sqlalchemy import text
-        from app.utils.database import engine
+        # Use your existing async session dependency
+        from app.database import get_async_session
         
-        with engine.connect() as conn:
-            # Update products with matching artwork by date and style
-            update_query = text("""
+        async for session in get_async_session():
+            # Update products with matching artwork
+            from sqlalchemy import text
+            
+            query = text("""
                 UPDATE products p
                 SET 
                     artwork_id = a.id,
@@ -36,19 +38,20 @@ async def link_artwork_to_products():
                     )
             """)
             
-            result = conn.execute(update_query)
-            conn.commit()
+            result = await session.execute(query)
+            await session.commit()
             
             matched_count = result.rowcount
             
-            # Get remaining unmatched products
+            # Get remaining unmatched
             check_query = text("""
                 SELECT COUNT(*) as unmatched
                 FROM products
                 WHERE artwork_id IS NULL
             """)
             
-            unmatched = conn.execute(check_query).scalar()
+            unmatched_result = await session.execute(check_query)
+            unmatched = unmatched_result.scalar()
             
             return {
                 "success": True,
@@ -58,7 +61,7 @@ async def link_artwork_to_products():
             }
             
     except Exception as e:
-        logger.error(f"Error linking artwork: {str(e)}")
+        logger.error(f"Error linking artwork: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -66,11 +69,10 @@ async def link_artwork_to_products():
 async def check_linkage_status():
     """Check how many products are linked vs unlinked"""
     try:
-        # Import inside function
+        from app.database import get_async_session
         from sqlalchemy import text
-        from app.utils.database import engine
         
-        with engine.connect() as conn:
+        async for session in get_async_session():
             query = text("""
                 SELECT 
                     COUNT(*) FILTER (WHERE artwork_id IS NOT NULL) as linked,
@@ -79,14 +81,15 @@ async def check_linkage_status():
                 FROM products
             """)
             
-            result = conn.execute(query).fetchone()
+            result = await session.execute(query)
+            row = result.fetchone()
             
             return {
-                "total_products": result.total,
-                "linked": result.linked,
-                "unlinked": result.unlinked
+                "total_products": row.total,
+                "linked": row.linked,
+                "unlinked": row.unlinked
             }
             
     except Exception as e:
-        logger.error(f"Error checking status: {str(e)}")
+        logger.error(f"Error checking status: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
