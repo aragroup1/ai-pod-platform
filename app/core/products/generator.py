@@ -83,7 +83,7 @@ class ProductGenerator:
                 storage = get_storage_manager()
                 s3_key = await storage.download_and_upload_from_url(
                     source_url=image_url,
-                    folder='generated'
+                    folder='products/generated'
                 )
 
                 if not s3_key:
