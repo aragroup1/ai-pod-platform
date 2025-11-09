@@ -110,5 +110,5 @@ app.include_router(product_feedback.router, prefix=f"{settings.API_V1_PREFIX}/pr
 app.include_router(keyword_research.router, prefix=f"{settings.API_V1_PREFIX}/keyword-research", tags=["Keywords"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 app.include_router(debug.router, prefix=f"{settings.API_V1_PREFIX}/debug", tags=["Debug"])
-
+app.include_router(admin_routes.router, prefix="/api/v1/admin", tags=["Admin"])
 logger.info("✅ All routes registered")
