@@ -1,5 +1,5 @@
 # app/api/v1/generation.py
-# FIXED VERSION - Remove testing_mode parameter
+# COMPLETE FIXED VERSION - With trends_awaiting_generation for frontend
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -119,9 +119,9 @@ async def get_generation_status():
             SELECT 
                 COUNT(*) as total_trends,
                 COUNT(*) FILTER (WHERE search_volume IS NOT NULL) as trends_with_volume,
-                COUNT(*) FILTER (WHERE search_volume > 1000) as high_volume_trends
+                COUNT(*) FILTER (WHERE search_volume > 1000) as high_volume_trends,
+                COUNT(*) FILTER (WHERE status = 'active') as active_trends
             FROM trends
-            WHERE status = 'active'
         """)
         
         return {
@@ -136,7 +136,8 @@ async def get_generation_status():
                 "with_volume": trend_stats['trends_with_volume'],
                 "high_volume": trend_stats['high_volume_trends']
             },
-            "ready_to_generate": trend_stats['trends_with_volume'] > 0
+            "trends_awaiting_generation": trend_stats['active_trends'],  # ADDED: Frontend expects this field
+            "ready_to_generate": trend_stats['active_trends'] > 0
         }
         
     except Exception as e:
