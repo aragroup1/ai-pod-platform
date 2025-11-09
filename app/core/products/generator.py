@@ -1,3 +1,6 @@
+# app/core/products/generator.py
+# FIXED: Removed trend_id from products INSERT (it doesn't exist in schema)
+
 import logging
 import json
 from typing import Dict, List, Optional
@@ -125,28 +128,26 @@ class ProductGenerator:
                 
                 logger.info(f"  ✅ Created artwork record ID: {artwork['id']}")
                 
-                # ✅ Now create product linked to artwork
+                # ✅ FIXED: Removed trend_id from products INSERT (doesn't exist in schema)
                 product = await self.db_pool.fetchrow("""
                     INSERT INTO products (
                         title,
                         description,
                         tags,
                         category,
-                        trend_id,
                         style,
                         artwork_id,
                         base_price,
                         status,
                         created_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
                     RETURNING *
                 """,
                     f"{keyword.title()} - {style.title()} Art",
                     f"Beautiful {style} style artwork featuring {keyword}. Perfect for home decor.",
                     json.dumps([keyword, style, 'wall art', 'home decor']),
                     trend.get('category', 'art'),
-                    trend['id'],
                     style,
                     artwork['id'],  # ✅ Link to artwork record
                     19.99,  # Default base price
@@ -187,7 +188,7 @@ class ProductGenerator:
             storage = get_storage_manager()
             s3_key = await storage.download_and_upload_from_url(
                 source_url=image_url,
-                 folder='products/generated',
+                folder='products/generated',
             )
             
             # ✅ Create artwork record first
@@ -208,7 +209,7 @@ class ProductGenerator:
                 json.dumps({'keyword': keyword})
             )
             
-            # ✅ Create product linked to artwork
+            # ✅ FIXED: Removed trend_id from products INSERT
             product = await self.db_pool.fetchrow("""
                 INSERT INTO products (
                     title, description, tags, category,
