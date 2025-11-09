@@ -1,5 +1,5 @@
 # app/api/v1/generation.py
-# COMPLETE FIXED VERSION - With trends_awaiting_generation for frontend
+# COMPLETE FIXED VERSION - With correct method name
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -12,8 +12,6 @@ logger = logging.getLogger(__name__)
 class BatchGenerateRequest(BaseModel):
     limit: int = 5
     max_designs_per_keyword: Optional[int] = 3  # Limit designs per keyword for cost control
-
-# Replace the batch-generate endpoint in app/api/v1/generation.py
 
 @router.post("/batch-generate")
 async def batch_generate_products(
@@ -70,10 +68,10 @@ async def batch_generate_products(
                 
                 trend_obj = TrendObj(trend)
                 
-                # Generate products using the correct method name
-                products = await generator.generate_products_for_trend(
+                # ✅ FIXED: Use the correct method name
+                products = await generator.generate_products_from_trend(
                     trend=trend_obj,
-                    max_designs=request.max_designs_per_keyword
+                    num_styles=request.max_designs_per_keyword
                 )
                 
                 total_products += len(products)
@@ -147,7 +145,7 @@ async def get_generation_status():
                 "with_volume": trend_stats['trends_with_volume'],
                 "high_volume": trend_stats['high_volume_trends']
             },
-            "trends_awaiting_generation": trend_stats['active_trends'],  # ADDED: Frontend expects this field
+            "trends_awaiting_generation": trend_stats['active_trends'],
             "ready_to_generate": trend_stats['active_trends'] > 0
         }
         
