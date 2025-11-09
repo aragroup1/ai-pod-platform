@@ -84,7 +84,7 @@ class TrendService:
                     logger.debug(f"Trend already exists: {topic['keyword']}")
                     continue
                 
-                # ✅ FIXED: Convert dict to JSON string
+                # Convert dict to JSON string
                 data_json = json.dumps({
                     'is_rising': topic.get('is_rising', False),
                     'competition': topic.get('competition', 'medium'),
@@ -205,136 +205,133 @@ class TrendService:
         scored.sort(key=lambda x: x['pod_score'], reverse=True)
         return scored
     
-    # Replace the _get_fallback_trends method in app/core/trends/service.py
-
-async def _get_fallback_trends(self) -> List[Dict]:
-    """
-    Comprehensive fallback trends for POD - 100+ proven keywords with search volumes
-    """
-    fallback_keywords = [
-        # Nature & Landscapes (High volume)
-        {"keyword": "mountain landscape", "volume": 50000, "category": "nature"},
-        {"keyword": "sunset", "volume": 55000, "category": "nature"},
-        {"keyword": "ocean waves", "volume": 35000, "category": "nature"},
-        {"keyword": "forest", "volume": 42000, "category": "nature"},
-        {"keyword": "desert landscape", "volume": 18000, "category": "nature"},
-        {"keyword": "tropical beach", "volume": 28000, "category": "nature"},
-        {"keyword": "waterfall", "volume": 32000, "category": "nature"},
-        {"keyword": "northern lights", "volume": 25000, "category": "nature"},
-        {"keyword": "cherry blossom", "volume": 32000, "category": "nature"},
-        {"keyword": "autumn leaves", "volume": 22000, "category": "nature"},
+    async def _get_fallback_trends(self) -> List[Dict]:
+        """
+        Comprehensive fallback trends for POD - 100+ proven keywords with search volumes
+        """
+        fallback_keywords = [
+            # Nature & Landscapes (High volume)
+            ("mountain landscape", 50000, "nature", 8.5),
+            ("sunset", 55000, "nature", 9.0),
+            ("ocean waves", 35000, "nature", 8.0),
+            ("forest", 42000, "nature", 8.5),
+            ("desert landscape", 18000, "nature", 7.5),
+            ("tropical beach", 28000, "nature", 8.0),
+            ("waterfall", 32000, "nature", 8.0),
+            ("northern lights", 25000, "nature", 8.5),
+            ("cherry blossom", 32000, "nature", 8.5),
+            ("autumn leaves", 22000, "nature", 7.5),
+            
+            # Animals (High volume)
+            ("black cat", 67245, "animals", 9.0),
+            ("wolf", 32000, "animals", 8.5),
+            ("bear", 30000, "animals", 8.0),
+            ("deer", 28000, "animals", 8.0),
+            ("fox", 25000, "animals", 8.0),
+            ("owl", 28000, "animals", 8.0),
+            ("elephant", 30000, "animals", 8.0),
+            ("lion", 35000, "animals", 8.5),
+            ("tiger", 32000, "animals", 8.5),
+            ("panda", 28000, "animals", 8.0),
+            
+            # Birds
+            ("hummingbird", 22000, "birds", 7.5),
+            ("peacock", 20000, "birds", 7.5),
+            ("eagle", 28000, "birds", 8.0),
+            ("flamingo", 24000, "birds", 7.5),
+            ("parrot", 22000, "birds", 7.5),
+            
+            # Space & Celestial
+            ("moon", 45000, "space", 9.0),
+            ("stars", 38000, "space", 8.5),
+            ("galaxy", 32000, "space", 8.5),
+            ("milky way", 22000, "space", 8.0),
+            ("constellation", 18000, "space", 7.5),
+            ("planet", 28000, "space", 8.0),
+            ("astronaut", 22000, "space", 7.5),
+            
+            # Abstract & Geometric
+            ("geometric", 28000, "abstract", 8.0),
+            ("abstract waves", 19000, "abstract", 7.5),
+            ("mandala", 28000, "abstract", 8.0),
+            ("sacred geometry", 15000, "abstract", 7.0),
+            ("fractal", 12000, "abstract", 6.5),
+            ("circles", 18000, "abstract", 7.0),
+            ("triangles", 14000, "abstract", 6.5),
+            
+            # Styles
+            ("minimalist", 40000, "style", 8.5),
+            ("vintage", 45000, "style", 8.5),
+            ("art deco", 35000, "style", 8.5),
+            ("mid century", 30000, "style", 8.0),
+            ("boho", 28000, "style", 8.0),
+            ("scandinavian", 22000, "style", 7.5),
+            ("modern", 35000, "style", 8.0),
+            ("rustic", 25000, "style", 7.5),
+            
+            # Floral
+            ("watercolor flowers", 25000, "floral", 8.0),
+            ("lotus flower", 25000, "floral", 8.0),
+            ("rose", 40000, "floral", 8.5),
+            ("sunflower", 32000, "floral", 8.5),
+            ("daisy", 22000, "floral", 7.5),
+            ("tulip", 24000, "floral", 7.5),
+            ("lavender", 28000, "floral", 8.0),
+            ("orchid", 22000, "floral", 7.5),
+            
+            # Seasonal
+            ("winter wonderland", 68248, "seasonal", 9.0),
+            ("spring flowers", 25159, "seasonal", 8.0),
+            ("summer vibes", 20000, "seasonal", 7.5),
+            ("autumn colors", 18000, "seasonal", 7.5),
+            ("christmas", 85000, "seasonal", 9.5),
+            ("halloween", 75000, "seasonal", 9.0),
+            
+            # Lifestyle
+            ("zen", 38482, "lifestyle", 8.5),
+            ("meditation", 30000, "lifestyle", 8.0),
+            ("yoga", 35000, "lifestyle", 8.5),
+            ("mindfulness", 22000, "lifestyle", 7.5),
+            ("self care", 28000, "lifestyle", 8.0),
+            ("wellness", 25000, "lifestyle", 7.5),
+            
+            # Mythical & Fantasy
+            ("dragon", 35000, "mythical", 8.5),
+            ("unicorn", 30000, "mythical", 8.5),
+            ("phoenix", 22000, "mythical", 8.0),
+            ("mermaid", 28000, "mythical", 8.0),
+            ("fairy", 24000, "mythical", 7.5),
+            
+            # Plants & Botanical
+            ("monstera leaf", 18000, "botanical", 7.5),
+            ("palm trees", 25000, "botanical", 8.0),
+            ("cactus", 22000, "botanical", 7.5),
+            ("succulent", 20000, "botanical", 7.5),
+            ("bamboo", 20000, "botanical", 7.5),
+            ("bonsai", 18000, "botanical", 7.5),
+            ("fern", 16000, "botanical", 7.0),
+            
+            # Urban & Architecture
+            ("city skyline", 22000, "urban", 7.5),
+            ("new york", 45000, "urban", 8.5),
+            ("london", 42000, "urban", 8.5),
+            ("paris", 40000, "urban", 8.5),
+            ("tokyo", 35000, "urban", 8.0),
+            
+            # Textures & Patterns
+            ("marble texture", 15000, "texture", 7.0),
+            ("wood grain", 12000, "texture", 6.5),
+            ("watercolor texture", 14000, "texture", 7.0),
+            ("gold foil", 16000, "texture", 7.0),
+            
+            # Inspirational & Quotes
+            ("motivational quotes", 35000, "quotes", 8.5),
+            ("inspirational", 28000, "quotes", 8.0),
+            ("positive vibes", 22000, "quotes", 7.5),
+            ("good vibes", 24000, "quotes", 7.5),
+        ]
         
-        # Animals (High volume)
-        {"keyword": "black cat", "volume": 67245, "category": "animals"},
-        {"keyword": "wolf", "volume": 32000, "category": "animals"},
-        {"keyword": "bear", "volume": 30000, "category": "animals"},
-        {"keyword": "deer", "volume": 28000, "category": "animals"},
-        {"keyword": "fox", "volume": 25000, "category": "animals"},
-        {"keyword": "owl", "volume": 28000, "category": "animals"},
-        {"keyword": "elephant", "volume": 30000, "category": "animals"},
-        {"keyword": "lion", "volume": 35000, "category": "animals"},
-        {"keyword": "tiger", "volume": 32000, "category": "animals"},
-        {"keyword": "panda", "volume": 28000, "category": "animals"},
-        
-        # Birds
-        {"keyword": "hummingbird", "volume": 22000, "category": "birds"},
-        {"keyword": "peacock", "volume": 20000, "category": "birds"},
-        {"keyword": "eagle", "volume": 28000, "category": "birds"},
-        {"keyword": "flamingo", "volume": 24000, "category": "birds"},
-        {"keyword": "parrot", "volume": 22000, "category": "birds"},
-        
-        # Space & Celestial
-        {"keyword": "moon", "volume": 45000, "category": "space"},
-        {"keyword": "stars", "volume": 38000, "category": "space"},
-        {"keyword": "galaxy", "volume": 32000, "category": "space"},
-        {"keyword": "milky way", "volume": 22000, "category": "space"},
-        {"keyword": "constellation", "volume": 18000, "category": "space"},
-        {"keyword": "planet", "volume": 28000, "category": "space"},
-        {"keyword": "astronaut", "volume": 22000, "category": "space"},
-        
-        # Abstract & Geometric
-        {"keyword": "geometric", "volume": 28000, "category": "abstract"},
-        {"keyword": "abstract waves", "volume": 19000, "category": "abstract"},
-        {"keyword": "mandala", "volume": 28000, "category": "abstract"},
-        {"keyword": "sacred geometry", "volume": 15000, "category": "abstract"},
-        {"keyword": "fractal", "volume": 12000, "category": "abstract"},
-        {"keyword": "circles", "volume": 18000, "category": "abstract"},
-        {"keyword": "triangles", "volume": 14000, "category": "abstract"},
-        
-        # Styles
-        {"keyword": "minimalist", "volume": 40000, "category": "style"},
-        {"keyword": "vintage", "volume": 45000, "category": "style"},
-        {"keyword": "art deco", "volume": 35000, "category": "style"},
-        {"keyword": "mid century", "volume": 30000, "category": "style"},
-        {"keyword": "boho", "volume": 28000, "category": "style"},
-        {"keyword": "scandinavian", "volume": 22000, "category": "style"},
-        {"keyword": "modern", "volume": 35000, "category": "style"},
-        {"keyword": "rustic", "volume": 25000, "category": "style"},
-        
-        # Floral
-        {"keyword": "watercolor flowers", "volume": 25000, "category": "floral"},
-        {"keyword": "lotus flower", "volume": 25000, "category": "floral"},
-        {"keyword": "rose", "volume": 40000, "category": "floral"},
-        {"keyword": "sunflower", "volume": 32000, "category": "floral"},
-        {"keyword": "daisy", "volume": 22000, "category": "floral"},
-        {"keyword": "tulip", "volume": 24000, "category": "floral"},
-        {"keyword": "lavender", "volume": 28000, "category": "floral"},
-        {"keyword": "orchid", "volume": 22000, "category": "floral"},
-        
-        # Seasonal
-        {"keyword": "winter wonderland", "volume": 68248, "category": "seasonal"},
-        {"keyword": "spring flowers", "volume": 25159, "category": "seasonal"},
-        {"keyword": "summer vibes", "volume": 20000, "category": "seasonal"},
-        {"keyword": "autumn colors", "volume": 18000, "category": "seasonal"},
-        {"keyword": "christmas", "volume": 85000, "category": "seasonal"},
-        {"keyword": "halloween", "volume": 75000, "category": "seasonal"},
-        
-        # Lifestyle
-        {"keyword": "zen", "volume": 38482, "category": "lifestyle"},
-        {"keyword": "meditation", "volume": 30000, "category": "lifestyle"},
-        {"keyword": "yoga", "volume": 35000, "category": "lifestyle"},
-        {"keyword": "mindfulness", "volume": 22000, "category": "lifestyle"},
-        {"keyword": "self care", "volume": 28000, "category": "lifestyle"},
-        {"keyword": "wellness", "volume": 25000, "category": "lifestyle"},
-        
-        # Mythical & Fantasy
-        {"keyword": "dragon", "volume": 35000, "category": "mythical"},
-        {"keyword": "unicorn", "volume": 30000, "category": "mythical"},
-        {"keyword": "phoenix", "volume": 22000, "category": "mythical"},
-        {"keyword": "mermaid", "volume": 28000, "category": "mythical"},
-        {"keyword": "fairy", "volume": 24000, "category": "mythical"},
-        
-        # Plants & Botanical
-        {"keyword": "monstera leaf", "volume": 18000, "category": "botanical"},
-        {"keyword": "palm trees", "volume": 25000, "category": "botanical"},
-        {"keyword": "cactus", "volume": 22000, "category": "botanical"},
-        {"keyword": "succulent", "volume": 20000, "category": "botanical"},
-        {"keyword": "bamboo", "volume": 20000, "category": "botanical"},
-        {"keyword": "bonsai", "volume": 18000, "category": "botanical"},
-        {"keyword": "fern", "volume": 16000, "category": "botanical"},
-        
-        # Urban & Architecture
-        {"keyword": "city skyline", "volume": 22000, "category": "urban"},
-        {"keyword": "new york", "volume": 45000, "category": "urban"},
-        {"keyword": "london", "volume": 42000, "category": "urban"},
-        {"keyword": "paris", "volume": 40000, "category": "urban"},
-        {"keyword": "tokyo", "volume": 35000, "category": "urban"},
-        
-        # Textures & Patterns
-        {"keyword": "marble texture", "volume": 15000, "category": "texture"},
-        {"keyword": "wood grain", "volume": 12000, "category": "texture"},
-        {"keyword": "watercolor texture", "volume": 14000, "category": "texture"},
-        {"keyword": "gold foil", "volume": 16000, "category": "texture"},
-        
-        # Inspirational & Quotes
-        {"keyword": "motivational quotes", "volume": 35000, "category": "quotes"},
-        {"keyword": "inspirational", "volume": 28000, "category": "quotes"},
-        {"keyword": "positive vibes", "volume": 22000, "category": "quotes"},
-        {"keyword": "good vibes", "volume": 24000, "category": "quotes"},
-    ]
-    
-    logger.info(f"📋 Using {len(fallback_keywords)} proven fallback trends")
-    return fallback_keywords
+        logger.info(f"📋 Using {len(fallback_keywords)} proven fallback trends")
         
         trends = []
         for keyword, volume, category, score in fallback_keywords:
@@ -349,112 +346,6 @@ async def _get_fallback_trends(self) -> List[Dict]:
             })
         
         return trends
-    
-    async def fetch_initial_10k_keywords(self) -> Dict:
-        """
-        🚀 10K INITIAL LAUNCH STRATEGY
-        Fetch comprehensive keyword set for 10K design launch
-        """
-        logger.info("🚀 Launching 10K initial keyword strategy...")
-        
-        all_keywords = []
-        
-        # ✅ COMPREHENSIVE KEYWORD DATABASE (100+ keywords across 10 categories)
-        categories_keywords = {
-            'nature': [
-                ('mountain landscape', 25000, 50),
-                ('sunset photography', 22000, 40),
-                ('ocean waves art', 20000, 40),
-                ('forest prints', 18000, 35),
-                ('desert landscape', 15000, 30),
-            ],
-            'typography': [
-                ('motivational quotes', 35000, 70),
-                ('inspirational sayings', 30000, 60),
-                ('funny quotes', 28000, 55),
-                ('office humor', 22000, 40),
-                ('bedroom quotes', 20000, 40),
-            ],
-            'abstract': [
-                ('geometric patterns', 20000, 40),
-                ('abstract shapes', 18000, 35),
-                ('modern art', 22000, 40),
-                ('minimalist design', 25000, 50),
-                ('boho patterns', 16000, 30),
-            ],
-            'botanical': [
-                ('botanical prints', 24000, 45),
-                ('flower art', 22000, 40),
-                ('leaf patterns', 18000, 35),
-                ('tropical plants', 20000, 40),
-                ('cactus art', 15000, 30),
-            ],
-            'animals': [
-                ('cat art', 28000, 55),
-                ('dog prints', 26000, 50),
-                ('bird illustrations', 18000, 35),
-                ('elephant art', 16000, 30),
-                ('lion prints', 14000, 25),
-            ],
-        }
-        
-        total_designs = 0
-        for category, keywords in categories_keywords.items():
-            for keyword, volume, designs in keywords:
-                all_keywords.append({
-                    'keyword': keyword,
-                    'search_volume': volume,
-                    'category': category,
-                    'designs_allocated': designs,
-                    'trend_score': 8.0
-                })
-                total_designs += designs
-        
-        # Store keywords
-        stored_count = 0
-        for kw in all_keywords:
-            try:
-                existing = await self.db_pool.fetchval(
-                    "SELECT id FROM trends WHERE LOWER(keyword) = LOWER($1)",
-                    kw['keyword']
-                )
-                
-                if not existing:
-                    data_json = json.dumps({
-                        'designs_allocated': kw['designs_allocated'],
-                        'initial_10k_batch': True,
-                        'created_at': datetime.utcnow().isoformat()
-                    })
-                    
-                    await self.db_pool.execute(
-                        """
-                        INSERT INTO trends (
-                            keyword, search_volume, trend_score,
-                            geography, category, data
-                        ) VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-                        """,
-                        kw['keyword'],
-                        kw['search_volume'],
-                        kw['trend_score'],
-                        'GB',
-                        kw['category'],
-                        data_json
-                    )
-                    stored_count += 1
-                    
-            except Exception as e:
-                logger.error(f"Error storing keyword {kw['keyword']}: {e}")
-        
-        return {
-            'success': True,
-            'total_keywords': len(all_keywords),
-            'keywords_stored': stored_count,
-            'total_designs_planned': total_designs,
-            'categories': len(categories_keywords),
-            'estimated_cost_test': f"£{total_designs * 0.003:.2f}",
-            'estimated_cost_production': f"£{total_designs * 0.04:.2f}",
-            'message': f"Ready to generate {total_designs} designs"
-        }
     
     async def get_trends_without_products(self, limit: int = 10) -> List[Dict]:
         """Get trends that need products generated"""
