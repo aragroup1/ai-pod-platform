@@ -9,6 +9,108 @@ logger = logging.getLogger(__name__)
 
 # Add to app/routers/admin_routes.py
 
+# Replace clean-duplicate-keywords in admin_routes.py
+
+@router.get("/clean-duplicate-keywords")
+async def clean_duplicate_keywords():
+    """
+    Forcefully removes duplicate keywords by:
+    1. Deleting all artwork referencing duplicate trends
+    2. Deleting duplicate trend records
+    Keeps the one with highest search volume.
+    """
+    try:
+        from app.database import get_db_pool
+        
+        pool = await get_db_pool()
+        
+        # Find duplicates
+        duplicates = await pool.fetch("""
+            SELECT 
+                LOWER(keyword) as normalized_keyword,
+                COUNT(*) as count,
+                ARRAY_AGG(id ORDER BY 
+                    COALESCE(search_volume, 0) DESC, 
+                    created_at DESC
+                ) as trend_ids,
+                MAX(search_volume) as highest_volume
+            FROM trends
+            GROUP BY LOWER(keyword)
+            HAVING COUNT(*) > 1
+        """)
+        
+        if not duplicates:
+            return {
+                "success": True,
+                "duplicates_found": 0,
+                "records_deleted": 0,
+                "message": "No duplicate keywords found"
+            }
+        
+        deleted_trends = 0
+        deleted_artwork = 0
+        deleted_products = 0
+        
+        for dup in duplicates:
+            # Keep first ID (highest volume), delete the rest
+            keep_id = dup['trend_ids'][0]
+            delete_ids = dup['trend_ids'][1:]
+            
+            logger.info(f"Keyword '{dup['normalized_keyword']}': keeping ID {keep_id} (volume: {dup['highest_volume']}), deleting {len(delete_ids)} duplicates")
+            
+            # Delete products linked to artwork that will be deleted
+            for delete_id in delete_ids:
+                # Get artwork IDs for this trend
+                artwork_ids = await pool.fetch("""
+                    SELECT id FROM artwork WHERE trend_id = $1
+                """, delete_id)
+                
+                if artwork_ids:
+                    artwork_id_list = [row['id'] for row in artwork_ids]
+                    
+                    # Delete products referencing this artwork
+                    result = await pool.execute("""
+                        DELETE FROM products
+                        WHERE artwork_id = ANY($1::int[])
+                    """, artwork_id_list)
+                    
+                    if result.startswith('DELETE'):
+                        count = int(result.split()[-1])
+                        deleted_products += count
+                        logger.info(f"  Deleted {count} products")
+                
+                # Delete artwork for this duplicate trend
+                result = await pool.execute("""
+                    DELETE FROM artwork WHERE trend_id = $1
+                """, delete_id)
+                
+                if result.startswith('DELETE'):
+                    count = int(result.split()[-1])
+                    deleted_artwork += count
+                    logger.info(f"  Deleted {count} artwork")
+            
+            # Now delete the duplicate trends
+            result = await pool.execute("""
+                DELETE FROM trends
+                WHERE id = ANY($1::int[])
+            """, delete_ids)
+            
+            if result.startswith('DELETE'):
+                deleted_trends += len(delete_ids)
+        
+        return {
+            "success": True,
+            "duplicates_found": len(duplicates),
+            "trends_deleted": deleted_trends,
+            "artwork_deleted": deleted_artwork,
+            "products_deleted": deleted_products,
+            "message": f"Force-deleted {deleted_trends} duplicate trends, {deleted_artwork} artwork, {deleted_products} products"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error cleaning duplicates: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+        
 @router.get("/clean-duplicate-keywords")
 async def clean_duplicate_keywords():
     """
