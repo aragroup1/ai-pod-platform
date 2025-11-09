@@ -13,6 +13,8 @@ class BatchGenerateRequest(BaseModel):
     limit: int = 5
     max_designs_per_keyword: Optional[int] = 3  # Limit designs per keyword for cost control
 
+# Replace the batch-generate endpoint in app/api/v1/generation.py
+
 @router.post("/batch-generate")
 async def batch_generate_products(
     request: BatchGenerateRequest,
@@ -27,7 +29,7 @@ async def batch_generate_products(
         
         pool = await get_db_pool()
         
-        # Initialize generator WITHOUT testing_mode parameter
+        # Initialize generator
         generator = ProductGenerator(db_pool=pool)
         
         # Get top trends by search volume (not null, ordered desc)
@@ -58,10 +60,19 @@ async def batch_generate_products(
             try:
                 logger.info(f"📊 Generating for: {trend['keyword']} (volume: {trend['search_volume']:,})")
                 
-                # Generate products for this trend
-                products = await generator.generate_products_for_keyword(
-                    keyword=trend['keyword'],
-                    trend_id=trend['id'],
+                # Create a trend object that the generator expects
+                class TrendObj:
+                    def __init__(self, row):
+                        self.id = row['id']
+                        self.keyword = row['keyword']
+                        self.search_volume = row['search_volume']
+                        self.category = row['category']
+                
+                trend_obj = TrendObj(trend)
+                
+                # Generate products using the correct method name
+                products = await generator.generate_products_for_trend(
+                    trend=trend_obj,
                     max_designs=request.max_designs_per_keyword
                 )
                 
