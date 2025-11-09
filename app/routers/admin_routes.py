@@ -1,8 +1,7 @@
 # app/routers/admin_routes.py
-# Add this new file to your routers directory
+# Fixed version - imports SQLAlchemy inside functions
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import text
 import logging
 
 router = APIRouter()
@@ -16,7 +15,8 @@ async def link_artwork_to_products():
     2. Style keywords in product title/tags
     """
     try:
-        # Import your database engine
+        # Import inside function to avoid module-level SQLAlchemy issues
+        from sqlalchemy import text
         from app.utils.database import engine
         
         with engine.connect() as conn:
@@ -66,6 +66,8 @@ async def link_artwork_to_products():
 async def check_linkage_status():
     """Check how many products are linked vs unlinked"""
     try:
+        # Import inside function
+        from sqlalchemy import text
         from app.utils.database import engine
         
         with engine.connect() as conn:
