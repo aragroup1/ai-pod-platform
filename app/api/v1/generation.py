@@ -1,313 +1,144 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
-from pydantic import BaseModel
-from typing import List, Optional
-from loguru import logger
+# app/api/v1/generation.py
+# FIXED VERSION - Remove testing_mode parameter
 
-from app.database import DatabasePool
-from app.dependencies import get_db_pool
-from app.core.products.generator import ProductGenerator
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from pydantic import BaseModel
+from typing import Optional
+import logging
 
 router = APIRouter()
-
-
-class GenerateRequest(BaseModel):
-    trend_id: int
-    styles: Optional[List[str]] = None
-    upscale: bool = False
-    budget_mode: str = "balanced"  # "cheap" | "balanced" | "quality"
-
+logger = logging.getLogger(__name__)
 
 class BatchGenerateRequest(BaseModel):
-    limit: int = 10
-    min_trend_score: float = 6.0
-    upscale: bool = False
-    testing_mode: bool = True  # Start with testing mode
-    budget_mode: str = "balanced"  # "cheap" | "balanced" | "quality"
-
-
-@router.post("/generate")
-async def generate_products_from_trend(
-    request: GenerateRequest,
-    background_tasks: BackgroundTasks,
-    db_pool: DatabasePool = Depends(get_db_pool)
-):
-    """
-    Generate products from a single trend
-    Intelligently selects best AI model for each style
-    Runs in background
-    
-    Budget modes:
-    - "cheap": Always use FLUX Schnell ($0.003/image)
-    - "balanced": Mix of models based on style ($0.003-$0.04/image)
-    - "quality": Prioritize quality over cost ($0.025-$0.04/image)
-    """
-    try:
-        generator = ProductGenerator(
-            db_pool, 
-            testing_mode=False,
-            budget_mode=request.budget_mode
-        )
-        
-        background_tasks.add_task(
-            generator.generate_products_from_trend,
-            trend_id=request.trend_id,
-            styles=request.styles,
-            upscale=request.upscale
-        )
-        
-        return {
-            "message": "Product generation started",
-            "trend_id": request.trend_id,
-            "budget_mode": request.budget_mode,
-            "status": "processing"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error starting generation: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
+    limit: int = 5
+    max_designs_per_keyword: Optional[int] = 3  # Limit designs per keyword for cost control
 
 @router.post("/batch-generate")
 async def batch_generate_products(
     request: BatchGenerateRequest,
-    background_tasks: BackgroundTasks,
-    db_pool: DatabasePool = Depends(get_db_pool)
+    background_tasks: BackgroundTasks
 ):
     """
-    Generate products for multiple trends with intelligent model selection
-    This will create LIMIT × 8 products (8 styles per trend)
-    
-    Each style automatically gets the best AI model:
-    - Typography → Ideogram Turbo (best text rendering)
-    - Photography → FLUX Pro (best photorealism)
-    - Watercolor/Botanical → FLUX Dev (best artistic quality)
-    - Minimalist → FLUX Schnell (fast and cheap)
-    
-    Budget modes:
-    - "cheap": ~$0.024 for 8 products (all FLUX Schnell)
-    - "balanced": ~$0.20 for 8 products (smart mix)
-    - "quality": ~$0.32 for 8 products (premium models)
-    
-    Testing mode: Always uses FLUX Schnell regardless of budget_mode
+    Generate products for top trends by search volume
     """
     try:
-        generator = ProductGenerator(
-            db_pool,
-            testing_mode=request.testing_mode,
-            budget_mode=request.budget_mode
-        )
+        from app.core.products.generator import ProductGenerator
+        from app.database import get_db_pool
         
-        background_tasks.add_task(
-            generator.batch_generate_from_trends,
-            limit=request.limit,
-            min_trend_score=request.min_trend_score,
-            upscale=request.upscale
-        )
+        pool = await get_db_pool()
         
-        expected_products = request.limit * 8  # 8 styles per trend
+        # Initialize generator WITHOUT testing_mode parameter
+        generator = ProductGenerator(db_pool=pool)
         
-        # Cost estimates
-        if request.testing_mode:
-            estimated_cost = expected_products * 0.003
-            cost_note = "Testing mode: All FLUX Schnell"
-        elif request.budget_mode == "cheap":
-            estimated_cost = expected_products * 0.003
-            cost_note = "Cheap mode: All FLUX Schnell"
-        elif request.budget_mode == "balanced":
-            estimated_cost = expected_products * 0.025  # Average mix
-            cost_note = "Balanced mode: Smart model selection"
-        else:  # quality
-            estimated_cost = expected_products * 0.035  # Average premium
-            cost_note = "Quality mode: Premium models"
+        # Get top trends by search volume (not null, ordered desc)
+        trends = await pool.fetch("""
+            SELECT id, keyword, search_volume, category
+            FROM trends
+            WHERE search_volume IS NOT NULL 
+              AND search_volume > 0
+              AND status = 'active'
+            ORDER BY search_volume DESC
+            LIMIT $1
+        """, request.limit)
+        
+        if not trends:
+            return {
+                "success": False,
+                "message": "No trends with search volumes found. Run trend analysis first.",
+                "trends_processed": 0,
+                "products_created": 0
+            }
+        
+        logger.info(f"🚀 Starting batch generation for {len(trends)} trends")
+        
+        total_products = 0
+        results = []
+        
+        for trend in trends:
+            try:
+                logger.info(f"📊 Generating for: {trend['keyword']} (volume: {trend['search_volume']:,})")
+                
+                # Generate products for this trend
+                products = await generator.generate_products_for_keyword(
+                    keyword=trend['keyword'],
+                    trend_id=trend['id'],
+                    max_designs=request.max_designs_per_keyword
+                )
+                
+                total_products += len(products)
+                
+                results.append({
+                    "keyword": trend['keyword'],
+                    "search_volume": trend['search_volume'],
+                    "products_created": len(products)
+                })
+                
+                logger.info(f"✅ Created {len(products)} products for '{trend['keyword']}'")
+                
+            except Exception as e:
+                logger.error(f"❌ Failed for '{trend['keyword']}': {str(e)}")
+                results.append({
+                    "keyword": trend['keyword'],
+                    "search_volume": trend['search_volume'],
+                    "error": str(e),
+                    "products_created": 0
+                })
+                continue
         
         return {
-            "message": "Batch generation started",
-            "expected_products": expected_products,
-            "trends_to_process": request.limit,
-            "testing_mode": request.testing_mode,
-            "budget_mode": request.budget_mode,
-            "estimated_cost": f"${estimated_cost:.2f}",
-            "cost_note": cost_note,
-            "status": "processing"
+            "success": True,
+            "message": f"Generated {total_products} products across {len(trends)} trends",
+            "trends_processed": len(trends),
+            "products_created": total_products,
+            "details": results
         }
         
     except Exception as e:
-        logger.error(f"Error starting batch generation: {e}")
+        logger.error(f"Batch generation failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/status")
-async def get_generation_status(db_pool: DatabasePool = Depends(get_db_pool)):
-    """Get statistics about generated products"""
+async def get_generation_status():
+    """Get current generation statistics"""
     try:
-        stats = await db_pool.fetchrow(
-            """
+        from app.database import get_db_pool
+        
+        pool = await get_db_pool()
+        
+        stats = await pool.fetchrow("""
             SELECT 
-                COUNT(DISTINCT p.id) as total_products,
-                COUNT(DISTINCT a.trend_id) as trends_with_products,
-                COUNT(DISTINCT a.id) as total_artwork
-            FROM products p
-            LEFT JOIN artwork a ON p.artwork_id = a.id
-            """
-        )
+                COUNT(*) as total_products,
+                COUNT(*) FILTER (WHERE artwork_id IS NOT NULL) as products_with_artwork,
+                COUNT(*) FILTER (WHERE status = 'active') as active_products,
+                COUNT(DISTINCT artwork_id) as unique_artworks
+            FROM products
+        """)
         
-        trends_without = await db_pool.fetchval(
-            """
-            SELECT COUNT(*)
-            FROM trends t
-            LEFT JOIN artwork a ON a.trend_id = t.id
-            WHERE a.id IS NULL
-            AND t.trend_score >= 6.0
-            """
-        )
+        trend_stats = await pool.fetchrow("""
+            SELECT 
+                COUNT(*) as total_trends,
+                COUNT(*) FILTER (WHERE search_volume IS NOT NULL) as trends_with_volume,
+                COUNT(*) FILTER (WHERE search_volume > 1000) as high_volume_trends
+            FROM trends
+            WHERE status = 'active'
+        """)
         
         return {
-            "total_products": stats['total_products'],
-            "trends_with_products": stats['trends_with_products'],
-            "total_artwork": stats['total_artwork'],
-            "trends_awaiting_generation": trends_without
+            "products": {
+                "total": stats['total_products'],
+                "with_artwork": stats['products_with_artwork'],
+                "active": stats['active_products'],
+                "unique_artworks": stats['unique_artworks']
+            },
+            "trends": {
+                "total": trend_stats['total_trends'],
+                "with_volume": trend_stats['trends_with_volume'],
+                "high_volume": trend_stats['high_volume_trends']
+            },
+            "ready_to_generate": trend_stats['trends_with_volume'] > 0
         }
         
     except Exception as e:
-        logger.error(f"Error getting generation status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/model-info")
-async def get_model_info():
-    """
-    Get information about available AI models and intelligent selection
-    """
-    return {
-        "intelligent_selection": True,
-        "description": "System automatically selects the best AI model for each art style",
-        "models": {
-            "flux-schnell": {
-                "cost": 0.003,
-                "quality": "7/10",
-                "speed": "Very Fast (5s)",
-                "best_for": ["minimalist", "abstract", "testing"],
-                "text_rendering": "5/10",
-                "photorealism": "6/10"
-            },
-            "flux-dev": {
-                "cost": 0.025,
-                "quality": "8/10",
-                "speed": "Fast (8s)",
-                "best_for": ["watercolor", "line_art", "botanical"],
-                "text_rendering": "7/10",
-                "photorealism": "8/10"
-            },
-            "flux-pro": {
-                "cost": 0.04,
-                "quality": "9/10",
-                "speed": "Medium (10s)",
-                "best_for": ["photography", "vintage", "high-quality"],
-                "text_rendering": "7/10",
-                "photorealism": "9/10"
-            },
-            "ideogram-turbo": {
-                "cost": 0.025,
-                "quality": "8/10",
-                "speed": "Fast (6s)",
-                "best_for": ["typography", "quotes", "text-heavy"],
-                "text_rendering": "10/10 ⭐",
-                "photorealism": "7/10"
-            }
-        },
-        "budget_modes": {
-            "cheap": {
-                "description": "Always use FLUX Schnell",
-                "avg_cost_per_product": "$0.003",
-                "avg_cost_8_styles": "$0.024"
-            },
-            "balanced": {
-                "description": "Smart mix based on style (Recommended)",
-                "avg_cost_per_product": "$0.025",
-                "avg_cost_8_styles": "$0.20"
-            },
-            "quality": {
-                "description": "Prioritize quality over cost",
-                "avg_cost_per_product": "$0.035",
-                "avg_cost_8_styles": "$0.28"
-            }
-        },
-        "selection_rules": {
-            "typography": "Uses Ideogram Turbo (best text rendering)",
-            "photography": "Uses FLUX Pro (best photorealism)",
-            "watercolor_botanical_line_art": "Uses FLUX Dev (best artistic quality)",
-            "minimalist": "Uses FLUX Schnell (fast and clean)",
-            "vintage_abstract": "Uses FLUX Pro/Dev based on budget mode"
-        }
-    }
-
-
-@router.post("/estimate-cost")
-async def estimate_generation_cost(
-    request: BatchGenerateRequest,
-    db_pool: DatabasePool = Depends(get_db_pool)
-):
-    """
-    Estimate the cost of batch generation before running it
-    Useful for budget planning
-    """
-    try:
-        # Get trends that would be generated
-        trends = await db_pool.fetch(
-            """
-            SELECT t.keyword
-            FROM trends t
-            LEFT JOIN artwork a ON a.trend_id = t.id
-            WHERE a.id IS NULL
-            AND t.trend_score >= $1
-            ORDER BY t.trend_score DESC
-            LIMIT $2
-            """,
-            request.min_trend_score,
-            request.limit
-        )
-        
-        if not trends:
-            return {
-                "message": "No trends available for generation",
-                "estimated_cost": "$0.00",
-                "products": 0
-            }
-        
-        # Estimate based on budget mode
-        styles = ['minimalist', 'abstract', 'vintage', 'watercolor', 
-                  'line_art', 'photography', 'typography', 'botanical']
-        
-        total_products = len(trends) * len(styles)
-        
-        if request.testing_mode:
-            cost_per_image = 0.003
-            mode_description = "Testing mode (all FLUX Schnell)"
-        elif request.budget_mode == "cheap":
-            cost_per_image = 0.003
-            mode_description = "Cheap mode (all FLUX Schnell)"
-        elif request.budget_mode == "balanced":
-            # Estimate mix: 2 ideogram, 2 flux-pro, 3 flux-dev, 1 flux-schnell
-            cost_per_image = (2*0.025 + 2*0.04 + 3*0.025 + 1*0.003) / 8
-            mode_description = "Balanced mode (intelligent mix)"
-        else:  # quality
-            # Estimate: 2 ideogram, 4 flux-pro, 2 flux-dev
-            cost_per_image = (2*0.025 + 4*0.04 + 2*0.025) / 8
-            mode_description = "Quality mode (premium models)"
-        
-        total_cost = total_products * cost_per_image
-        
-        return {
-            "trends_to_process": len(trends),
-            "products_per_trend": len(styles),
-            "total_products": total_products,
-            "mode": mode_description,
-            "cost_per_image": f"${cost_per_image:.4f}",
-            "estimated_total_cost": f"${total_cost:.2f}",
-            "keywords": [t['keyword'] for t in trends[:5]],  # Show first 5
-            "note": "This is an estimate. Actual cost may vary slightly."
-        }
-        
-    except Exception as e:
-        logger.error(f"Error estimating cost: {e}")
+        logger.error(f"Failed to get status: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
