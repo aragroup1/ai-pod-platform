@@ -1,6 +1,3 @@
-# app/core/products/generator.py
-# FIXED: Removed trend_id from products INSERT (it doesn't exist in schema)
-
 import logging
 import json
 from typing import Dict, List, Optional
@@ -59,19 +56,17 @@ class ProductGenerator:
             try:
                 logger.info(f"  Generating {style} style...")
                 
-                # Generate AI image - returns a dict with 'image_url' key
+                # Generate AI image
                 result = await self.ai_generator.generate_image(
                     prompt=f"{keyword}, {style} style, high quality, professional",
                     style=style,
                     keyword=keyword
                 )
                 
-                # ✅ CRITICAL FIX: Validate result first
                 if not isinstance(result, dict):
                     logger.error(f"  ❌ AI result is not a dict! Type: {type(result)}")
                     continue
 
-                # Extract the URL string from the result dict
                 image_url = result.get('image_url')
 
                 if not image_url or not isinstance(image_url, str):
@@ -95,7 +90,7 @@ class ProductGenerator:
 
                 logger.info(f"  ✅ S3 uploaded: {s3_key}")
                 
-                # ✅ CRITICAL FIX: Create artwork record FIRST
+                # Create artwork record FIRST
                 artwork = await self.db_pool.fetchrow("""
                     INSERT INTO artwork (
                         prompt,
@@ -114,7 +109,7 @@ class ProductGenerator:
                     result.get('prompt', f"{keyword} {style} style"),
                     result.get('provider', result.get('model_used', 'replicate')),
                     style,
-                    s3_key,  # ✅ Store S3 key in artwork table
+                    s3_key,
                     result.get('generation_cost', 0.003),
                     result.get('quality_score', 8.0),
                     trend['id'],
@@ -122,35 +117,35 @@ class ProductGenerator:
                         'model_key': result.get('model_key'),
                         'model_used': result.get('model_used'),
                         'keyword': keyword,
+                        'style': style,
                         'generated_at': datetime.now().isoformat()
                     })
                 )
                 
                 logger.info(f"  ✅ Created artwork record ID: {artwork['id']}")
                 
-                # ✅ FIXED: Removed trend_id from products INSERT (doesn't exist in schema)
+                # ✅ ULTRA-MINIMAL: Only columns that DEFINITELY exist in products table
+                # Based on common POD schema: title, description, tags, category, artwork_id, base_price, status
                 product = await self.db_pool.fetchrow("""
                     INSERT INTO products (
                         title,
                         description,
                         tags,
                         category,
-                        style,
                         artwork_id,
                         base_price,
                         status,
                         created_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
                     RETURNING *
                 """,
                     f"{keyword.title()} - {style.title()} Art",
                     f"Beautiful {style} style artwork featuring {keyword}. Perfect for home decor.",
                     json.dumps([keyword, style, 'wall art', 'home decor']),
                     trend.get('category', 'art'),
-                    style,
-                    artwork['id'],  # ✅ Link to artwork record
-                    19.99,  # Default base price
+                    artwork['id'],
+                    19.99,
                     'active'
                 )
                 
@@ -173,14 +168,13 @@ class ProductGenerator:
     ) -> Optional[Dict]:
         """Generate a single product"""
         try:
-            # Generate image - returns dict with 'image_url' key
+            # Generate image
             result = await self.ai_generator.generate_image(
                 prompt=f"{keyword}, {style} style, high quality",
                 style=style,
                 keyword=keyword
             )
             
-            # Extract URL string
             image_url = result['image_url']
             
             # Upload to S3
@@ -191,7 +185,7 @@ class ProductGenerator:
                 folder='products/generated',
             )
             
-            # ✅ Create artwork record first
+            # Create artwork record first
             artwork = await self.db_pool.fetchrow("""
                 INSERT INTO artwork (
                     prompt, provider, style, image_url,
@@ -206,24 +200,23 @@ class ProductGenerator:
                 s3_key,
                 result.get('generation_cost', 0.003),
                 result.get('quality_score', 8.0),
-                json.dumps({'keyword': keyword})
+                json.dumps({'keyword': keyword, 'style': style})
             )
             
-            # ✅ FIXED: Removed trend_id from products INSERT
+            # Create product (minimal columns only)
             product = await self.db_pool.fetchrow("""
                 INSERT INTO products (
                     title, description, tags, category,
-                    style, artwork_id, base_price, status, created_at
+                    artwork_id, base_price, status, created_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
                 RETURNING *
             """,
                 f"{keyword.title()} - {style.title()}",
                 f"{style.title()} style {keyword} artwork",
                 json.dumps([keyword, style]),
                 category,
-                style,
-                artwork['id'],  # ✅ Link to artwork
+                artwork['id'],
                 19.99,
                 'active'
             )
