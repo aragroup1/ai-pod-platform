@@ -124,8 +124,7 @@ class ProductGenerator:
                 
                 logger.info(f"  ✅ Created artwork record ID: {artwork['id']}")
                 
-                # ✅ ULTRA-MINIMAL: Only columns that DEFINITELY exist in products table
-                # Based on common POD schema: title, description, tags, category, artwork_id, base_price, status
+                # ✅ FIXED: Pass tags as a Python list (array), NOT a JSON string
                 product = await self.db_pool.fetchrow("""
                     INSERT INTO products (
                         title,
@@ -142,7 +141,7 @@ class ProductGenerator:
                 """,
                     f"{keyword.title()} - {style.title()} Art",
                     f"Beautiful {style} style artwork featuring {keyword}. Perfect for home decor.",
-                    json.dumps([keyword, style, 'wall art', 'home decor']),
+                    [keyword, style, 'wall art', 'home decor'],  # ✅ Python list, not JSON string
                     trend.get('category', 'art'),
                     artwork['id'],
                     19.99,
@@ -203,7 +202,7 @@ class ProductGenerator:
                 json.dumps({'keyword': keyword, 'style': style})
             )
             
-            # Create product (minimal columns only)
+            # Create product (tags as list)
             product = await self.db_pool.fetchrow("""
                 INSERT INTO products (
                     title, description, tags, category,
@@ -214,7 +213,7 @@ class ProductGenerator:
             """,
                 f"{keyword.title()} - {style.title()}",
                 f"{style.title()} style {keyword} artwork",
-                json.dumps([keyword, style]),
+                [keyword, style],  # ✅ Python list
                 category,
                 artwork['id'],
                 19.99,
