@@ -1,6 +1,3 @@
-"""
-Railway-compatible server entry point
-"""
 import os
 import uvicorn
 
