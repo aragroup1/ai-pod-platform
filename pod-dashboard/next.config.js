@@ -3,7 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   // Force this environment variable into the build
   env: {
-    NEXT_PUBLIC_API_URL: 'https://backend-production-7aae.up.railway.app/api/v1',
+    NEXT_PUBLIC_API_URL: 'https://backend2-production-c1d4.up.railway.app/api/v1',
   },
   // Disable Next.js caching during build
   generateBuildId: async () => {
