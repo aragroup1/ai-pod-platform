@@ -65,9 +65,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
-        "https://ai-pod-platform-production.up.railway.app",  # ← ADD THIS
-        "https://*.up.railway.app",
+        "http://localhost:3001",
     ],
+    allow_origin_regex=r"https://.*\.up\.railway\.app",  # ✅ Proper wildcard for Railway
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
