@@ -8,7 +8,7 @@ import {
   DollarSign, ShoppingCart, TrendingUp, Palette, AlertCircle, RefreshCw, 
   Zap, Info, Brain, Image as ImageIcon, ExternalLink, LayoutGrid, 
   Check, X, Trash2, Rocket, Calendar, Settings, Target, Package, ThumbsUp, ThumbsDown,
-  Database, Bug, Play
+  Database, Bug, Play, ShoppingBag
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 
