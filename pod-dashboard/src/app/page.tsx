@@ -562,8 +562,8 @@ export default function DashboardPage() {
             {progress && (
               <div className="mt-4 pt-4 border-t">
                 <div className="flex justify-between text-sm mb-1">
-                  <span>Progress: {progress.progress_percentage.toFixed(1)}%</span>
-                  <span>{progress.total_generated.toLocaleString()} / {progress.total_allocated.toLocaleString()}</span>
+                  <span>Progress: {(progress.progress_percentage || 0).toFixed(1)}%</span>
+                  <span>{(progress.total_generated || 0).toLocaleString()} / {(progress.total_allocated || 0).toLocaleString()}</span>
                 </div>
                 <div className="w-full bg-muted rounded-full h-2">
                   <div 
@@ -618,9 +618,9 @@ export default function DashboardPage() {
                   </Button>
                 </div>
                 <div className="text-sm space-y-1">
-                  <p><strong>Daily:</strong> {dailyCalc.trendsNeeded} trends = {dailyGenerationTarget} designs</p>
-                  <p><strong>Cost:</strong> £{dailyCalc.dailyCost.toFixed(2)}/day</p>
-                  <p><strong>10K in:</strong> {dailyCalc.daysTo10K} days</p>
+                  <p><strong>Daily:</strong> {dailyCalc.trendsNeeded || 0} trends = {dailyGenerationTarget} designs</p>
+                  <p><strong>Cost:</strong> £{(dailyCalc.dailyCost || 0).toFixed(2)}/day</p>
+                  <p><strong>10K in:</strong> {dailyCalc.daysTo10K || 0} days</p>
                 </div>
               </div>
             </CardContent>
@@ -985,8 +985,8 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <p className="font-semibold">Daily Generation:</p>
-                    <p>{dailyCalc.trendsNeeded} trends = {dailyGenerationTarget} designs</p>
-                    <p>Cost: £{dailyCalc.dailyCost.toFixed(2)}/day</p>
+                    <p>{dailyCalc.trendsNeeded || 0} trends = {dailyGenerationTarget} designs</p>
+                    <p>Cost: £{(dailyCalc.dailyCost || 0).toFixed(2)}/day</p>
                   </div>
                 </div>
               </CardContent>
