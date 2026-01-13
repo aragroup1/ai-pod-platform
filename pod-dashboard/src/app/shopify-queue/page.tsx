@@ -149,6 +149,14 @@ export default function ShopifyQueue() {
   <Home className="h-4 w-4 mr-2" />
   Dashboard
 </Button>
+          <Button onClick={async () => {
+  toast.info('Generating SEO for all products...');
+  await fetch(`${API_BASE_URL}/product-feedback/batch-generate-seo`, {method: 'POST'});
+  toast.success('SEO generated!');
+  fetchApprovedProducts();
+}}>
+  Regenerate All SEO
+</Button>
           <Button 
             variant="outline"
             onClick={() => setShowSettings(!showSettings)}
