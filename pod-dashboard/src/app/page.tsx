@@ -13,7 +13,7 @@ import {
 import { Toaster, toast } from 'sonner';
 
 // CRITICAL: Hardcoded HTTPS URL
-const API_BASE_URL = 'https://backend-production-7aae.up.railway.app/api/v1';
+const API_BASE_URL = 'https://backend2-production-c1d4.up.railway.app/api/v1';
 
 // Interfaces
 interface DashboardStats {
