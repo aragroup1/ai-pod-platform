@@ -1,10 +1,5 @@
 # app/api/v1/product_feedback.py
-"""
-Product Feedback API - Learn from User Preferences
-Stores approvals/rejections and learns from patterns
-✅ NOW WITH AWS S3 DELETION ON REJECT
-✅ FIXED: Deletes rejected products instead of updating to invalid enum
-"""
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
@@ -301,7 +296,44 @@ async def get_rejected_products(
     except Exception as e:
         logger.error(f"Error fetching rejected products: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
+@router.post("/feedback")
+async def record_feedback(feedback: ProductFeedback):
+    # Existing approval logic
+    await db.execute(
+        "UPDATE products SET status = $1 WHERE id = $2",
+        'approved', feedback.product_id
+    )
+    
+    # Auto-generate SEO content
+    if feedback.feedback_type == 'approved':
+        product = await db.fetch_one(
+            "SELECT artwork FROM products WHERE id = $1", 
+            feedback.product_id
+        )
+        
+        if product['artwork']['image_url']:
+            from openai import OpenAI
+            client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Create SEO-optimized t-shirt listing: 1) Title (50-60 chars, keyword-rich) 2) Description (150 words, persuasive, include fit/material). JSON: {\"title\": \"...\", \"description\": \"...\"}"},
+                        {"type": "image_url", "image_url": {"url": product['artwork']['image_url']}}
+                    ]
+                }]
+            )
+            
+            content = json.loads(response.choices[0].message.content)
+            
+            await db.execute(
+                "UPDATE products SET title = $1, description = $2 WHERE id = $3",
+                content['title'], content['description'], feedback.product_id
+            )
+    
+    return {"success": True}
 
 @router.get("/preferences")
 async def get_learned_preferences(
