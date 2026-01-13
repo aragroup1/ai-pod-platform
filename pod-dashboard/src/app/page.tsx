@@ -513,6 +513,14 @@ export default function DashboardPage() {
               <LayoutGrid className="h-4 w-4 mr-2" />
               Gallery ({productsWithImages.length})
             </Button>
+            // Add to the buttons section near "Gallery" button
+<Button 
+  onClick={() => window.location.href = '/shopify-queue'}
+  variant="outline"
+>
+  <ShoppingBag className="h-4 w-4 mr-2" />
+  Shopify Queue ({approvedCount})
+</Button>
           </div>
         </header>
 
