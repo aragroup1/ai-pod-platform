@@ -276,7 +276,7 @@ export default function ShopifyQueue() {
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Price</p>
-                        <p className="font-semibold text-sm">£{product.base_price.toFixed(2)}</p>
+                        <p className="font-semibold text-sm">£{(product.base_price || 1).toFixed(2)}</p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Status</p>
