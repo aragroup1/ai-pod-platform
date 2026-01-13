@@ -340,6 +340,36 @@ async def record_feedback(feedback: ProductFeedback):
     
     return {"success": True}
 
+@router.post("/batch-generate-seo")
+async def batch_generate_seo():
+    products = await db.fetch_all(
+        "SELECT id, artwork FROM products WHERE status = 'approved' AND (title IS NULL OR title = '')"
+    )
+    
+    from openai import OpenAI
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    
+    for product in products:
+        if product['artwork']['image_url']:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Create SEO t-shirt listing JSON: {\"title\": \"50-60 char keyword-rich title\", \"description\": \"150 word persuasive description\"}"},
+                        {"type": "image_url", "image_url": {"url": product['artwork']['image_url']}}
+                    ]
+                }]
+            )
+            
+            content = json.loads(response.choices[0].message.content)
+            await db.execute(
+                "UPDATE products SET title = $1, description = $2 WHERE id = $3",
+                content['title'], content['description'], product['id']
+            )
+    
+    return {"updated": len(products)}
+    
 @router.get("/preferences")
 async def get_learned_preferences(
     db_pool: DatabasePool = Depends(get_db_pool)
