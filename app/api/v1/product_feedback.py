@@ -19,6 +19,11 @@ class FeedbackRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class ProductFeedback(BaseModel):
+    product_id: int
+    feedback_type: str  # 'approved' or 'rejected'
+    notes: str = None
+    
 class BulkFeedbackRequest(BaseModel):
     product_ids: List[int]
     action: str
