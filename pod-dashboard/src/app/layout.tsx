@@ -10,17 +10,6 @@ export const metadata: Metadata = {
   description: 'Manage your AI Print-on-Demand Platform',
 }
 
-export default function RootLayout({ children }) {
-  return (
-    <html lang="en">
-      <body>
-        <Navigation />  {/* Add this */}
-        {children}
-      </body>
-    </html>
-  );
-}
-
 export default function RootLayout({
   children,
 }: {
