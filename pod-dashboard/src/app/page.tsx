@@ -519,7 +519,7 @@ export default function DashboardPage() {
   variant="outline"
 >
   <ShoppingBag className="h-4 w-4 mr-2" />
-  Shopify Queue ({approvedCount})
+  Shopify Queue ({recentProducts.filter(p => p.status === 'approved').length})
 </Button>
           </div>
         </header>
