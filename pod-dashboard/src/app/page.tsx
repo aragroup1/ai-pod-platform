@@ -869,7 +869,7 @@ export default function DashboardPage() {
                   <Rocket className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{dailyCalc.daysTo10K}d</div>
+                  <div className="text-2xl font-bold">{dailyCalc?.daysTo10K || 0}d</div>
                   <p className="text-xs text-muted-foreground">
                     at current rate
                   </p>
@@ -980,7 +980,8 @@ export default function DashboardPage() {
                   <div>
                     <p className="font-semibold">Current Batch:</p>
                     <p>{trendsToGenerate} trends × 8 styles = {trendsToGenerate * 8} designs</p>
-                    <p>Cost: £{testingMode ? (trendsToGenerate * 8 * 0.003).toFixed(2) : (trendsToGenerate * 8 * 0.04).toFixed(2)}</p>
+                    
+<p>Cost: £{(testingMode ? (trendsToGenerate * 8 * 0.003) : (trendsToGenerate * 8 * 0.04)).toFixed(2)}</p>
                   </div>
                   <div>
                     <p className="font-semibold">Daily Generation:</p>
