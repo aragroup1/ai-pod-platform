@@ -1,19 +1,15 @@
 "use client";
 import { 
   ShoppingBag, Upload, Settings, CheckCircle, XCircle, 
-  ExternalLink, Image as ImageIcon, FileText, Edit, Home
+  ExternalLink, Image as ImageIcon, FileText, Edit, Home  // ← Add Home
 } from 'lucide-react';
-import { toast } from 'sonner';
+
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { 
-  ShoppingBag, Upload, Settings, CheckCircle, XCircle, 
-  ExternalLink, Image as ImageIcon, FileText, Edit
-}
-
+import { toast } from 'sonner';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://backend2-production-c1d4.up.railway.app/api/v1';
 
