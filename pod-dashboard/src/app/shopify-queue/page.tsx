@@ -1,8 +1,4 @@
 "use client";
-import { 
-  ShoppingBag, Upload, Settings, CheckCircle, XCircle, 
-  ExternalLink, Image as ImageIcon, FileText, Edit, Home  // ← Add Home
-} from 'lucide-react';
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
