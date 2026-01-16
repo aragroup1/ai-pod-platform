@@ -30,110 +30,127 @@ class BulkFeedbackRequest(BaseModel):
 
 
 @router.post("/feedback")
-async def record_feedback(
-    request: FeedbackRequest,
-    db_pool: DatabasePool = Depends(get_db_pool)
-):
-    """
-    Record user feedback on a product
-    This helps the AI learn what you like/dislike
+async def record_feedback(feedback: ProductFeedback):
+    """Record product feedback and auto-generate SEO content for approved products"""
     
-    ✅ FIXED: Now DELETES rejected products (they had invalid enum anyway)
-    """
-    try:
-        # Get product details INCLUDING S3 key
-        product = await db_pool.fetchrow(
-            """
-            SELECT p.*, a.image_url as s3_key, a.style, a.metadata, a.provider
-            FROM products p
-            LEFT JOIN artwork a ON p.artwork_id = a.id
-            WHERE p.id = $1
-            """,
-            request.product_id
-        )
-        
-        if not product:
-            raise HTTPException(status_code=404, detail="Product not found")
-        
-        # Store feedback BEFORE any deletions
-        await db_pool.execute(
-            """
-            INSERT INTO product_feedback (
-                product_id, action, reason, style, 
-                provider, keyword, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
-            """,
-            request.product_id,
-            request.action,
-            request.reason,
-            product['style'],
-            product['provider'],
-            product['title'].split('-')[0].strip() if product['title'] else ''
-        )
-        
-        if request.action == 'approve':
-            # Update to approved status
-            await db_pool.execute(
-                """
-                UPDATE products 
-                SET status = 'approved'::product_status,
-                   last_updated = NOW()
-                WHERE id = $1
-                """,
-                request.product_id
+    logger.info(f"Processing {feedback.feedback_type} feedback for product {feedback.product_id}")
+    
+    async with db_pool.pool.acquire() as conn:
+        # Update product status
+        if feedback.feedback_type == 'approved':
+            await conn.execute(
+                "UPDATE products SET status = 'approved' WHERE id = $1",
+                feedback.product_id
+            )
+            logger.info(f"✅ Product {feedback.product_id} approved for Shopify")
+            
+            # Fetch product with artwork
+            product = await conn.fetchrow(
+                "SELECT id, artwork FROM products WHERE id = $1", 
+                feedback.product_id
             )
             
-            logger.info(f"✅ Product {request.product_id} approved for Shopify")
-            
-            return {
-                "success": True,
-                "product_id": request.product_id,
-                "action": "approve",
-                "status": "approved",
-                "deleted": False
-            }
-            
-        else:  # reject
-            # Delete from S3 first
-            s3_deleted = False
-            if product.get('s3_key'):
+            # Auto-generate SEO content
+            if product and product['artwork'] and product['artwork'].get('image_url'):
                 try:
-                    storage = get_storage_manager()
-                    s3_deleted = storage.delete_image(product['s3_key'])
+                    from openai import OpenAI
+                    client = OpenAI(api_key=settings.OPENAI_API_KEY)
                     
-                    if s3_deleted:
-                        logger.info(f"✅ Deleted S3 image: {product['s3_key']}")
-                    else:
-                        logger.warning(f"⚠️ Failed to delete S3 image: {product['s3_key']}")
-                        
-                except Exception as s3_error:
-                    logger.error(f"❌ S3 deletion error: {s3_error}")
-            
-            # DELETE the product entirely (feedback is already stored)
-            await db_pool.execute(
-                """
-                DELETE FROM products WHERE id = $1
-                """,
-                request.product_id
+                    logger.info(f"🎨 Analyzing image for SEO content generation...")
+                    
+                    response = client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[{
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text", 
+                                    "text": """Analyze this t-shirt design image in detail and create SEO-optimized listing content.
+
+ANALYZE:
+- Main colors (be specific: navy blue, sage green, burnt orange, etc)
+- Design style (minimalist, vintage, abstract, geometric, illustrative, etc)
+- Visual elements (what objects, shapes, patterns, text, symbols are visible)
+- Overall aesthetic and mood (playful, serious, edgy, peaceful, etc)
+- Target audience (streetwear fans, nature lovers, gamers, etc)
+
+CREATE JSON:
+{
+  "title": "50-60 character SEO title including: main visual element + style + color + 'T-Shirt'",
+  "description": "150-200 word description that:
+    - Opens with the main visual hook describing what's on the shirt
+    - Describes colors and design elements in vivid detail
+    - Includes keywords: 'graphic tee', 'unisex', 'cotton', 'streetwear', 'casual wear', 'printed tee'
+    - Mentions fit: 'comfortable fit', 'true to size', 'soft fabric'
+    - Appeals to target audience with lifestyle context
+    - SEO keywords naturally integrated throughout
+    - Ends with a call-to-action"
+}
+
+IMPORTANT: Be extremely specific about what you actually see in the image. Don't make generic descriptions.
+
+Example title: "Vintage Sunset Palm Tree Graphic T-Shirt - Retro Orange & Pink Design"
+Example description start: "Make a statement with this eye-catching vintage-inspired sunset palm tree graphic tee. Featuring vibrant orange and pink gradient skies melting into deep purple twilight, this design captures the nostalgic essence of 80s beach culture. The silhouetted palm trees create a striking contrast against the colorful backdrop, while the retro aesthetic appeals to streetwear enthusiasts and vintage lovers alike..."
+
+Return ONLY valid JSON, no markdown formatting."""
+                                },
+                                {"type": "image_url", "image_url": {"url": product['artwork']['image_url']}}
+                            ]
+                        }],
+                        max_tokens=600
+                    )
+                    
+                    # Parse response
+                    content_text = response.choices[0].message.content.strip()
+                    
+                    # Remove markdown code blocks if present
+                    if content_text.startswith('```'):
+                        content_text = content_text.split('```')[1]
+                        if content_text.startswith('json'):
+                            content_text = content_text[4:]
+                        content_text = content_text.strip()
+                    
+                    content = json.loads(content_text)
+                    
+                    # Update product with SEO content
+                    await conn.execute(
+                        "UPDATE products SET title = $1, description = $2 WHERE id = $3",
+                        content['title'], 
+                        content['description'], 
+                        feedback.product_id
+                    )
+                    
+                    logger.info(f"✅ SEO content generated for product {feedback.product_id}")
+                    logger.info(f"   Title: {content['title']}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Failed to generate SEO content: {e}")
+                    # Don't fail the approval if SEO generation fails
+                    
+        elif feedback.feedback_type == 'rejected':
+            await conn.execute(
+                "UPDATE products SET status = 'rejected' WHERE id = $1",
+                feedback.product_id
             )
-            
-            logger.info(f"🗑️ Product {request.product_id} rejected and DELETED from database")
-            
-            return {
-                "success": True,
-                "product_id": request.product_id,
-                "action": "reject",
-                "status": "deleted",
-                "s3_deleted": s3_deleted,
-                "deleted": True
-            }
+            logger.info(f"❌ Product {feedback.product_id} rejected")
         
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error recording feedback: {e}")
-        logger.exception("Full traceback:")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Record feedback in feedback table (optional)
+        if feedback.notes:
+            await conn.execute(
+                """
+                INSERT INTO product_feedback (product_id, feedback_type, notes, created_at)
+                VALUES ($1, $2, $3, NOW())
+                """,
+                feedback.product_id,
+                feedback.feedback_type,
+                feedback.notes
+            )
+    
+    return {
+        "success": True, 
+        "message": f"Product {feedback.feedback_type}",
+        "product_id": feedback.product_id
+    }
 
 
 @router.post("/bulk-feedback")
