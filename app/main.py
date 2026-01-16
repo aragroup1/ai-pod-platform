@@ -9,7 +9,9 @@ from app.config import settings
 from app.database import db_pool
 from app.utils.cache import redis_client
 from app.api.v1 import debug  # Add this to your imports
+from app.api.v1 import shopify
 
+app.include_router(shopify.router, prefix=f"{settings.API_V1_PREFIX}/shopify", tags=["Shopify"])
 # Configure logging
 logger.remove()
 logger.add(
