@@ -11,7 +11,7 @@ from app.utils.cache import redis_client
 from app.api.v1 import debug  # Add this to your imports
 from app.api.v1 import shopify
 
-app.include_router(shopify.router, prefix=f"{settings.API_V1_PREFIX}/shopify", tags=["Shopify"])
+
 # Configure logging
 logger.remove()
 logger.add(
@@ -102,7 +102,7 @@ from app.api.v1 import (
 
 # Include routers
 logger.info("📋 Registering API routes...")
-
+app.include_router(shopify.router, prefix=f"{settings.API_V1_PREFIX}/shopify", tags=["Shopify"])
 app.include_router(test.router, prefix=f"{settings.API_V1_PREFIX}/test", tags=["Test"])
 app.include_router(products.router, prefix=f"{settings.API_V1_PREFIX}/products", tags=["Products"])
 app.include_router(orders.router, prefix=f"{settings.API_V1_PREFIX}/orders", tags=["Orders"])
