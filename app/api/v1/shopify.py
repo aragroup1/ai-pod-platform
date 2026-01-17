@@ -78,30 +78,29 @@ async def upload_to_shopify(request: ShopifyUploadRequest):
             logger.info(f"✅ Image downloaded successfully")
         except Exception as e:
             logger.error(f"❌ Failed to download image: {e}")
+    else:
+        logger.warning(f"⚠️ No image URL for product {request.product_id}")
     
-shopify_product = {
-    "product": {
-        "title": product['title'] or f"Design {product['sku']}",
-        "body_html": product['description'] or "Premium quality canvas print",
-        "vendor": "",  # ← Empty string instead of "AI POD Platform"
-        "product_type": "",  # ← Empty string instead of "Canvas Print"
-        "published_scope": "web",  # ← Add this for Online Store
-        "status": "draft",
-        "variants": [{
-            "price": str(product['base_price'] or 29.99),
-            "sku": product['sku'],  # ← Already there, check if it's empty in DB
-            "inventory_management": None
-        }]
+    shopify_product = {
+        "product": {
+            "title": product['title'] or f"Design {product['sku']}",
+            "body_html": product['description'] or "Premium quality canvas print",
+            "vendor": "",
+            "product_type": "",
+            "published_scope": "web",
+            "status": "draft",
+            "variants": [{
+                "price": str(product['base_price'] or 29.99),
+                "sku": product['sku'],
+                "inventory_management": None
+            }]
+        }
     }
-}
-
-if base64_image:
-    shopify_product['product']['images'] = [{"attachment": base64_image}]
-else:
-    logger.warning(f"⚠️ No image available for product {request.product_id}")  # ← Add warning
     
     if base64_image:
         shopify_product['product']['images'] = [{"attachment": base64_image}]
+    else:
+        logger.warning(f"⚠️ No image will be uploaded for product {request.product_id}")
     
     try:
         async with httpx.AsyncClient() as client:
@@ -118,6 +117,8 @@ else:
             if response.status_code == 201:
                 shopify_data = response.json()
                 logger.info(f"✅ Product {request.product_id} uploaded to Shopify")
+                logger.info(f"   Shopify Product ID: {shopify_data['product']['id']}")
+                logger.info(f"   Has images: {len(shopify_data['product'].get('images', [])) > 0}")
                 
                 async with db_pool.pool.acquire() as conn:
                     await conn.execute(
@@ -128,7 +129,8 @@ else:
                 return {
                     "success": True,
                     "shopify_product_id": shopify_data['product']['id'],
-                    "shopify_url": f"https://{shop_url}/admin/products/{shopify_data['product']['id']}"
+                    "shopify_url": f"https://{shop_url}/admin/products/{shopify_data['product']['id']}",
+                    "has_images": len(shopify_data['product'].get('images', [])) > 0
                 }
             else:
                 logger.error(f"❌ Shopify upload failed: {response.text}")
