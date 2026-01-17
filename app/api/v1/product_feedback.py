@@ -51,7 +51,7 @@ async def record_feedback(feedback: ProductFeedback):
             )
             
             # Auto-generate SEO content
-            if product and product['artwork'] and product['artwork'].get('image_url'):
+        if product and product['artwork'] and product['artwork'].get('image_url'):
                 try:
                     from openai import OpenAI
                     client = OpenAI(api_key=settings.OPENAI_API_KEY)
