@@ -5,9 +5,9 @@ import os
 
 class Settings(BaseSettings):
     # CRITICAL: These must be set in production
-    SECRET_KEY: str = "change-this-in-production-a-very-long-secret-key"
-    ENCRYPTION_KEY: str = "change-this-in-production-a-32-byte-long-key"
-    
+ SHOPIFY_SHOP_URL: str = ""
+    SHOPIFY_ACCESS_TOKEN: str = ""
+    SHOPIFY_API_KEY: str = ""
     # Environment
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
