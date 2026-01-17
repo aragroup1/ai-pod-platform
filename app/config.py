@@ -5,7 +5,7 @@ import os
 
 class Settings(BaseSettings):
     # CRITICAL: These must be set in production
- SHOPIFY_SHOP_URL: str = ""
+    SHOPIFY_SHOP_URL: str = ""
     SHOPIFY_ACCESS_TOKEN: str = ""
     SHOPIFY_API_KEY: str = ""
     # Environment
