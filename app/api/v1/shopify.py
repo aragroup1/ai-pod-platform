@@ -79,20 +79,26 @@ async def upload_to_shopify(request: ShopifyUploadRequest):
         except Exception as e:
             logger.error(f"❌ Failed to download image: {e}")
     
-    shopify_product = {
-        "product": {
-            "title": product['title'] or f"Design {product['sku']}",
-            "body_html": product['description'] or "Premium quality canvas print",
-            "vendor": "AI POD Platform",
-            "product_type": "Canvas Print",
-            "status": "draft",
-            "variants": [{
-                "price": str(product['base_price'] or 29.99),
-                "sku": product['sku'],
-                "inventory_management": None
-            }]
-        }
+shopify_product = {
+    "product": {
+        "title": product['title'] or f"Design {product['sku']}",
+        "body_html": product['description'] or "Premium quality canvas print",
+        "vendor": "",  # ← Empty string instead of "AI POD Platform"
+        "product_type": "",  # ← Empty string instead of "Canvas Print"
+        "published_scope": "web",  # ← Add this for Online Store
+        "status": "draft",
+        "variants": [{
+            "price": str(product['base_price'] or 29.99),
+            "sku": product['sku'],  # ← Already there, check if it's empty in DB
+            "inventory_management": None
+        }]
     }
+}
+
+if base64_image:
+    shopify_product['product']['images'] = [{"attachment": base64_image}]
+else:
+    logger.warning(f"⚠️ No image available for product {request.product_id}")  # ← Add warning
     
     if base64_image:
         shopify_product['product']['images'] = [{"attachment": base64_image}]
