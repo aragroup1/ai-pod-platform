@@ -28,11 +28,37 @@ async def download_image_as_base64(image_url: str) -> str:
 async def upload_to_shopify(request: ShopifyUploadRequest):
     """Upload a product to Shopify"""
     
-    # ... existing code until image_url ...
+    shop_url = settings.SHOPIFY_SHOP_URL
+    access_token = settings.SHOPIFY_ACCESS_TOKEN
     
-    image_url = product['image_url']
+    if not shop_url or not access_token:
+        raise HTTPException(400, "Shopify credentials not configured")
     
-    # Download and convert image to base64
+    # Fetch product and process image inside the same block
+    async with db_pool.pool.acquire() as conn:
+        product = await conn.fetchrow(
+            """
+            SELECT p.id, p.title, p.description, p.sku, p.base_price, 
+                   a.image_url, a.style
+            FROM products p
+            LEFT JOIN artwork a ON p.artwork_id = a.id
+            WHERE p.id = $1 AND p.status = 'approved'
+            """,
+            request.product_id
+        )
+        
+        if not product:
+            raise HTTPException(404, "Product not found or not approved")
+        
+        # Extract values while still in context
+        product_id = product['id']
+        title = product['title']
+        description = product['description']
+        sku = product['sku']
+        base_price = product['base_price']
+        image_url = product['image_url']
+    
+    # Now continue outside the block with extracted values
     base64_image = None
     if image_url:
         try:
@@ -42,8 +68,9 @@ async def upload_to_shopify(request: ShopifyUploadRequest):
     
     shopify_product = {
         "product": {
-            "title": product['title'] or f"Design {product['sku']}",
-            "body_html": product['description'] or "Premium quality canvas print",
+            "title": title or f"Design {sku}",
+            "body_html": description or "Premium quality canvas print",
+            # ... rest of code
             "vendor": "AI POD Platform",
             "product_type": "Canvas Print",
             "status": "draft",
