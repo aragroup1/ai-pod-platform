@@ -64,33 +64,27 @@ export default function ShopifyQueue() {
   }, []);
 
   const uploadToShopify = async (productId: number) => {
-    if (!config.shop_url || !config.access_token) {
-      toast.error('Please configure Shopify settings first');
-      setShowSettings(true);
-      return;
-    }
-
     setUploading(productId);
     try {
       const res = await fetch(`${API_BASE_URL}/shopify/upload`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          product_id: productId,
-          shop_url: config.shop_url,
-          access_token: config.access_token
-        })
+        body: JSON.stringify({ product_id: productId })
       });
 
       if (res.ok) {
+        const data = await res.json();
         toast.success('Product uploaded to Shopify!');
-        fetchApprovedProducts(); // Refresh list
+        console.log('Shopify response:', data);
+        fetchApprovedProducts();
       } else {
         const error = await res.json();
         toast.error(`Upload failed: ${error.detail || 'Unknown error'}`);
+        console.error('Upload error:', error);
       }
     } catch (err: any) {
       toast.error(`Upload error: ${err.message}`);
+      console.error('Upload error:', err);
     } finally {
       setUploading(null);
     }
@@ -102,17 +96,11 @@ export default function ShopifyQueue() {
       return;
     }
 
-    if (!config.shop_url || !config.access_token) {
-      toast.error('Please configure Shopify settings first');
-      setShowSettings(true);
-      return;
-    }
-
     toast.info(`Uploading ${products.length} products...`);
     
     for (const product of products) {
       await uploadToShopify(product.id);
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Rate limit
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
     toast.success('Batch upload complete!');
