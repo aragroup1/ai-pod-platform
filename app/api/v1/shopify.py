@@ -99,3 +99,41 @@ async def upload_to_shopify(request: ShopifyUploadRequest):  # ← Changed param
     except Exception as e:
         logger.error(f"Error uploading to Shopify: {e}")
         raise HTTPException(500, f"Upload failed: {str(e)}")
+
+async with db_pool.pool.acquire() as conn:
+    product = await conn.fetchrow(
+        """
+        SELECT id, title, description, sku, base_price, artwork
+        FROM products
+        WHERE id = $1 AND status = 'approved'
+        """,
+        request.product_id
+    )
+
+if not product:
+    raise HTTPException(404, "Product not found or not approved")
+
+# Extract image from artwork JSONB
+image_url = None
+if product['artwork']:
+    image_url = product['artwork'].get('image_url')
+
+# Prepare Shopify product data
+shopify_product = {
+    "product": {
+        "title": product['title'] or f"Design {product['sku']}",
+        "body_html": product['description'] or "Premium quality canvas print",
+        "vendor": "AI POD Platform",
+        "product_type": "Canvas Print",
+        "status": "draft",
+        "variants": [{
+            "price": str(product['base_price'] or 29.99),
+            "sku": product['sku'],
+            "inventory_management": None
+        }]
+    }
+}
+
+# Add image if available
+if image_url:
+    shopify_product['product']['images'] = [{"src": image_url}]
