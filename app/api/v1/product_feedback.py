@@ -52,6 +52,9 @@ async def record_feedback(feedback: ProductFeedback):
             
             # Auto-generate SEO content
         if product and product['artwork'] and product['artwork'].get('image_url'):
+                # This is the corrected section for your product_feedback.py file
+# Replace lines 50-110 approximately with this code
+
                 try:
                     from openai import OpenAI
                     client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -63,9 +66,9 @@ async def record_feedback(feedback: ProductFeedback):
                         messages=[{
                             "role": "user",
                             "content": [
-                              {
-    "type": "text", 
-    "text": """Analyze this canvas print design in detail and create SEO-optimized listing content.
+                                {
+                                    "type": "text", 
+                                    "text": """Analyze this canvas print design in detail and create SEO-optimized listing content.
 
 ANALYZE:
 - Main colors (be specific: navy blue, sage green, burnt orange, etc)
@@ -93,7 +96,6 @@ Example title: "Abstract Geometric Canvas Print - Navy Blue & Gold Modern Wall A
 Example description start: "Transform your space with this stunning abstract geometric canvas print. Featuring bold navy blue shapes contrasted against luxurious gold accents, this modern wall art brings sophisticated style to any room. The clean lines and minimalist composition create a sense of balance and harmony, perfect for contemporary homes and offices..."
 
 Return ONLY valid JSON, no markdown formatting."""
-}
                                 },
                                 {"type": "image_url", "image_url": {"url": product['artwork']['image_url']}}
                             ]
