@@ -63,36 +63,37 @@ async def record_feedback(feedback: ProductFeedback):
                         messages=[{
                             "role": "user",
                             "content": [
-                                {
-                                    "type": "text", 
-                                    "text": """Analyze this t-shirt design image in detail and create SEO-optimized listing content.
+                              {
+    "type": "text", 
+    "text": """Analyze this canvas print design in detail and create SEO-optimized listing content.
 
 ANALYZE:
 - Main colors (be specific: navy blue, sage green, burnt orange, etc)
 - Design style (minimalist, vintage, abstract, geometric, illustrative, etc)
 - Visual elements (what objects, shapes, patterns, text, symbols are visible)
 - Overall aesthetic and mood (playful, serious, edgy, peaceful, etc)
-- Target audience (streetwear fans, nature lovers, gamers, etc)
+- Target audience (home decor enthusiasts, art collectors, interior designers, etc)
 
 CREATE JSON:
 {
-  "title": "50-60 character SEO title including: main visual element + style + color + 'T-Shirt'",
+  "title": "50-60 character SEO title including: main visual element + style + color + 'Canvas Print' or 'Wall Art'",
   "description": "150-200 word description that:
-    - Opens with the main visual hook describing what's on the shirt
+    - Opens with the main visual hook describing the artwork
     - Describes colors and design elements in vivid detail
-    - Includes keywords: 'graphic tee', 'unisex', 'cotton', 'streetwear', 'casual wear', 'printed tee'
-    - Mentions fit: 'comfortable fit', 'true to size', 'soft fabric'
-    - Appeals to target audience with lifestyle context
+    - Includes keywords: 'canvas print', 'wall art', 'home decor', 'framed art', 'gallery wrap', 'museum quality'
+    - Mentions quality: 'premium canvas', 'vibrant colors', 'fade-resistant', 'ready to hang'
+    - Appeals to target audience with home/office decor context
     - SEO keywords naturally integrated throughout
     - Ends with a call-to-action"
 }
 
-IMPORTANT: Be extremely specific about what you actually see in the image. Don't make generic descriptions.
+IMPORTANT: Be extremely specific about what you actually see in the image. This is a canvas wall art print, not clothing.
 
-Example title: "Vintage Sunset Palm Tree Graphic T-Shirt - Retro Orange & Pink Design"
-Example description start: "Make a statement with this eye-catching vintage-inspired sunset palm tree graphic tee. Featuring vibrant orange and pink gradient skies melting into deep purple twilight, this design captures the nostalgic essence of 80s beach culture. The silhouetted palm trees create a striking contrast against the colorful backdrop, while the retro aesthetic appeals to streetwear enthusiasts and vintage lovers alike..."
+Example title: "Abstract Geometric Canvas Print - Navy Blue & Gold Modern Wall Art"
+Example description start: "Transform your space with this stunning abstract geometric canvas print. Featuring bold navy blue shapes contrasted against luxurious gold accents, this modern wall art brings sophisticated style to any room. The clean lines and minimalist composition create a sense of balance and harmony, perfect for contemporary homes and offices..."
 
 Return ONLY valid JSON, no markdown formatting."""
+}
                                 },
                                 {"type": "image_url", "image_url": {"url": product['artwork']['image_url']}}
                             ]
