@@ -11,7 +11,7 @@ class ShopifyUploadRequest(BaseModel):
     product_id: int
 
 @router.post("/upload")
-async def upload_to_shopify(request: ShopifyUploadRequest):
+async def upload_to_shopify(request: ShopifyUploadRequest):  # ← DON'T DELETE THIS LINE
     """Upload a product to Shopify"""
     
     # Use environment variables
@@ -22,18 +22,17 @@ async def upload_to_shopify(request: ShopifyUploadRequest):
         raise HTTPException(400, "Shopify credentials not configured")
     
     # Fetch product from database
-  # Fetch product from database
-async with db_pool.pool.acquire() as conn:
-    product = await conn.fetchrow(
-        """
-        SELECT p.id, p.title, p.description, p.sku, p.base_price, 
-               a.image_url, a.style
-        FROM products p
-        LEFT JOIN artwork a ON p.artwork_id = a.id
-        WHERE p.id = $1 AND p.status = 'approved'
-        """,
-        request.product_id
-    )
+    async with db_pool.pool.acquire() as conn:  # ← This needs the function above
+        product = await conn.fetchrow(
+            """
+            SELECT p.id, p.title, p.description, p.sku, p.base_price, 
+                   a.image_url, a.style
+            FROM products p
+            LEFT JOIN artwork a ON p.artwork_id = a.id
+            WHERE p.id = $1 AND p.status = 'approved'
+            """,
+            request.product_id
+        )
 
 if not product:
     raise HTTPException(404, "Product not found or not approved")
