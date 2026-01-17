@@ -13,9 +13,13 @@ class ShopifyUpload(BaseModel):
     access_token: str
 
 @router.post("/upload")
-async def upload_to_shopify(upload: ShopifyUpload):
+async def upload_to_shopify(product_id: int):
     """Upload a product to Shopify"""
-    
+    shop_url = settings.SHOPIFY_SHOP_URL
+    access_token = settings.SHOPIFY_ACCESS_TOKEN
+
+    if not shop_url or not access_token:
+        raise HTTPException(400, "Shopify credentials not configured")
     # Fetch product from database
     async with db_pool.pool.acquire() as conn:
         product = await conn.fetchrow(
