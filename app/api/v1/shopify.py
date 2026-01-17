@@ -63,7 +63,7 @@ async def upload_to_shopify(request: ShopifyUploadRequest):
     if image_url:
         try:
             if not image_url.startswith(('http://', 'https://')):
-            image_url = f"https://{image_url}"
+                image_url = f"https://{image_url}"
             
             base64_image = await download_image_as_base64(image_url)
         except Exception as e:
