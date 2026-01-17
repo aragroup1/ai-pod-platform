@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import httpx
+import re
+import boto3
 import base64
 from io import BytesIO
 from app.database import db_pool
@@ -12,17 +14,45 @@ router = APIRouter()
 class ShopifyUploadRequest(BaseModel):
     product_id: int
 
-async def download_image_as_base64(image_url: str) -> str:
-    """Download image from S3 and convert to base64"""
-    async with httpx.AsyncClient() as client:
-        response = await client.get(image_url)
-        response.raise_for_status()
-        image_data = response.content
-        base64_image = base64.b64encode(image_data).decode('utf-8')
-        
-        # Detect content type
-        content_type = response.headers.get('content-type', 'image/png')
-        return f"data:{content_type};base64,{base64_image}"
+
+import re
+import boto3
+import base64
+
+def extract_s3_key_from_url(url: str) -> str:
+    """Extract S3 key from pre-signed URL"""
+    # URL format: https://bucket.s3.region.amazonaws.com/KEY?params
+    match = re.search(r'amazonaws\.com/(.+?)\?', url)
+    if match:
+        return match.group(1)
+    return None
+
+async def download_s3_image_as_base64(image_url: str) -> str:
+    """Download image from S3 using boto3 and convert to base64"""
+    # Extract S3 key from pre-signed URL
+    s3_key = extract_s3_key_from_url(image_url)
+    if not s3_key:
+        raise ValueError("Could not extract S3 key from URL")
+    
+    logger.info(f"📸 Downloading S3 key: {s3_key}")
+    
+    # Use boto3 to download directly from S3
+    s3_client = boto3.client('s3',
+        region_name='eu-north-1',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+    )
+    
+    response = s3_client.get_object(
+        Bucket='ai-pod-platform-images',
+        Key=s3_key
+    )
+    
+    image_data = response['Body'].read()
+    base64_image = base64.b64encode(image_data).decode('utf-8')
+    content_type = response['ContentType']
+    
+    return f"data:{content_type};base64,{base64_image}"
 
 @router.post("/upload")
 async def upload_to_shopify(request: ShopifyUploadRequest):
@@ -58,12 +88,13 @@ async def upload_to_shopify(request: ShopifyUploadRequest):
         base_price = product['base_price']
         image_url = product['image_url']
     
-    # Now continue outside the block with extracted values
-    base64_image = None
-    if image_url:
-        try:
-            if not image_url.startswith(('http://', 'https://')):
-                image_url = f"https://{image_url}"
+        base64_image = None
+        if image_url:
+            try:
+                base64_image = await download_s3_image_as_base64(image_url)
+                logger.info(f"✅ Image downloaded successfully")
+            except Exception as e:
+                logger.error(f"Failed to download image: {e}")
             
             base64_image = await download_image_as_base64(image_url)
         except Exception as e:
