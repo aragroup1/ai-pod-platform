@@ -11,18 +11,16 @@ class ShopifyUploadRequest(BaseModel):
     product_id: int
 
 @router.post("/upload")
-async def upload_to_shopify(request: ShopifyUploadRequest):  # ← DON'T DELETE THIS LINE
+async def upload_to_shopify(request: ShopifyUploadRequest):
     """Upload a product to Shopify"""
     
-    # Use environment variables
     shop_url = settings.SHOPIFY_SHOP_URL
     access_token = settings.SHOPIFY_ACCESS_TOKEN
     
     if not shop_url or not access_token:
         raise HTTPException(400, "Shopify credentials not configured")
     
-    # Fetch product from database
-    async with db_pool.pool.acquire() as conn:  # ← This needs the function above
+    async with db_pool.pool.acquire() as conn:
         product = await conn.fetchrow(
             """
             SELECT p.id, p.title, p.description, p.sku, p.base_price, 
@@ -33,34 +31,30 @@ async def upload_to_shopify(request: ShopifyUploadRequest):  # ← DON'T DELETE 
             """,
             request.product_id
         )
-
-if not product:
-    raise HTTPException(404, "Product not found or not approved")
-
-# Extract image from joined artwork table
-image_url = product['image_url']  # Direct column access
-
-# Prepare Shopify product data
-shopify_product = {
-    "product": {
-        "title": product['title'] or f"Design {product['sku']}",
-        "body_html": product['description'] or "Premium quality canvas print",
-        "vendor": "AI POD Platform",
-        "product_type": "Canvas Print",
-        "status": "draft",
-        "variants": [{
-            "price": str(product['base_price'] or 29.99),
-            "sku": product['sku'],
-            "inventory_management": None
-        }]
-    }
-}
-
-# Add image if available
-if image_url:
-    shopify_product['product']['images'] = [{"src": image_url}]
     
-    # Upload to Shopify
+    if not product:
+        raise HTTPException(404, "Product not found or not approved")
+    
+    image_url = product['image_url']
+    
+    shopify_product = {
+        "product": {
+            "title": product['title'] or f"Design {product['sku']}",
+            "body_html": product['description'] or "Premium quality canvas print",
+            "vendor": "AI POD Platform",
+            "product_type": "Canvas Print",
+            "status": "draft",
+            "variants": [{
+                "price": str(product['base_price'] or 29.99),
+                "sku": product['sku'],
+                "inventory_management": None
+            }]
+        }
+    }
+    
+    if image_url:
+        shopify_product['product']['images'] = [{"src": image_url}]
+    
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -77,7 +71,6 @@ if image_url:
                 shopify_data = response.json()
                 logger.info(f"✅ Product {request.product_id} uploaded to Shopify")
                 
-                # Mark as uploaded
                 async with db_pool.pool.acquire() as conn:
                     await conn.execute(
                         "UPDATE products SET status = 'uploaded' WHERE id = $1",
