@@ -33,20 +33,20 @@ SELECT p.id, p.title, p.description, p.sku, p.base_price,
         raise HTTPException(404, "Product not found or not approved")
     
     # Prepare Shopify product data
-    shopify_product = {
-        "product": {
-            "title": product['title'] or f"Design {product['sku']}",
-            "body_html": product['description'] or "Premium quality t-shirt design",
-            "vendor": "AI POD Platform",
-            "product_type": "T-Shirt",
-            "status": "draft",
-            "variants": [{
-                "price": str(product['base_price'] or 19.99),
-                "sku": product['sku'],
-                "inventory_management": None
-            }]
-        }
+shopify_product = {
+    "product": {
+        "title": product['title'] or f"Design {product['sku']}",
+        "body_html": product['description'] or "Premium quality canvas print",
+        "vendor": "AI POD Platform",
+        "product_type": "Canvas Print",  # ← Changed from T-Shirt
+        "status": "draft",
+        "variants": [{
+            "price": str(product['base_price'] or 29.99),  # ← Higher price for canvas
+            "sku": product['sku'],
+            "inventory_management": None
+        }]
     }
+}
     
     # Add image if available
     if product['artwork'] and product['artwork'].get('image_url'):
