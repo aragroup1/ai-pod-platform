@@ -25,13 +25,13 @@ async def upload_to_shopify(request: ShopifyUploadRequest):  # ← Changed param
     
     # Fetch product from database
     async with db_pool.pool.acquire() as conn:
-    product = await conn.fetchrow(
+        product = await conn.fetchrow(
         """
-        SELECT id, title, description, sku, base_price, artwork
-        FROM products
-        WHERE id = $1 AND status = 'approved'
-        """,
-        request.product_id
+            SELECT id, title, description, sku, base_price, artwork
+            FROM products
+            WHERE id = $1 AND status = 'approved'
+            """,
+            request.product_id
     )
 
 if not product:
