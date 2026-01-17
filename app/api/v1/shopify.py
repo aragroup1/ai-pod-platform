@@ -7,19 +7,22 @@ from loguru import logger
 
 router = APIRouter()
 
-class ShopifyUpload(BaseModel):
+from pydantic import BaseModel
+
+class ShopifyUploadRequest(BaseModel):
     product_id: int
-    shop_url: str
-    access_token: str
 
 @router.post("/upload")
-async def upload_to_shopify(product_id: int):
+async def upload_to_shopify(request: ShopifyUploadRequest):  # ← Changed parameter
     """Upload a product to Shopify"""
+    
+    # Use environment variables
     shop_url = settings.SHOPIFY_SHOP_URL
     access_token = settings.SHOPIFY_ACCESS_TOKEN
-
+    
     if not shop_url or not access_token:
-        raise HTTPException(400, "Shopify credentials not configured")
+        raise HTTPException(400, "Shopify credentials not configured in environment variables")
+    
     # Fetch product from database
     async with db_pool.pool.acquire() as conn:
         product = await conn.fetchrow(
@@ -30,8 +33,10 @@ async def upload_to_shopify(product_id: int):
             LEFT JOIN artwork a ON p.id = a.product_id
             WHERE p.id = $1 AND p.status = 'approved'
             """,
-            upload.product_id
+            request.product_id  # ← Changed from upload.product_id
         )
+    
+    # Rest stays the same...
     
     if not product:
         raise HTTPException(404, "Product not found or not approved")
