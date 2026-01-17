@@ -20,9 +20,11 @@ async def upload_to_shopify(upload: ShopifyUpload):
     async with db_pool.pool.acquire() as conn:
         product = await conn.fetchrow(
             """
-            SELECT id, title, description, sku, base_price, artwork 
-            FROM products 
-            WHERE id = $1 AND status = 'approved'
+SELECT p.id, p.title, p.description, p.sku, p.base_price, 
+                   a.image_url, a.style 
+            FROM products p
+            LEFT JOIN artwork a ON p.id = a.product_id
+            WHERE p.id = $1 AND p.status = 'approved'
             """,
             upload.product_id
         )
