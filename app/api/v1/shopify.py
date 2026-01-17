@@ -20,7 +20,7 @@ async def upload_to_shopify(upload: ShopifyUpload):
     async with db_pool.pool.acquire() as conn:
         product = await conn.fetchrow(
             """
-SELECT p.id, p.title, p.description, p.sku, p.base_price, 
+            SELECT p.id, p.title, p.description, p.sku, p.base_price, 
                    a.image_url, a.style 
             FROM products p
             LEFT JOIN artwork a ON p.id = a.product_id
@@ -33,25 +33,25 @@ SELECT p.id, p.title, p.description, p.sku, p.base_price,
         raise HTTPException(404, "Product not found or not approved")
     
     # Prepare Shopify product data
-shopify_product = {
-    "product": {
-        "title": product['title'] or f"Design {product['sku']}",
-        "body_html": product['description'] or "Premium quality canvas print",
-        "vendor": "AI POD Platform",
-        "product_type": "Canvas Print",  # ← Changed from T-Shirt
-        "status": "draft",
-        "variants": [{
-            "price": str(product['base_price'] or 29.99),  # ← Higher price for canvas
-            "sku": product['sku'],
-            "inventory_management": None
-        }]
+    shopify_product = {
+        "product": {
+            "title": product['title'] or f"Design {product['sku']}",
+            "body_html": product['description'] or "Premium quality canvas print",
+            "vendor": "AI POD Platform",
+            "product_type": "Canvas Print",
+            "status": "draft",
+            "variants": [{
+                "price": str(product['base_price'] or 29.99),
+                "sku": product['sku'],
+                "inventory_management": None
+            }]
+        }
     }
-}
     
     # Add image if available
-    if product['artwork'] and product['artwork'].get('image_url'):
+    if product['image_url']:
         shopify_product['product']['images'] = [{
-            "src": product['artwork']['image_url']
+            "src": product['image_url']
         }]
     
     # Upload to Shopify
