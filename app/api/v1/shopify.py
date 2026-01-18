@@ -59,9 +59,9 @@ async def download_s3_image_as_base64(image_url: str) -> str:
     
     image_data = response['Body'].read()
     base64_image = base64.b64encode(image_data).decode('utf-8')
-    content_type = response['ContentType']
     
-    return f"data:{content_type};base64,{base64_image}"
+    # Return ONLY base64 string (no data URI prefix) for Shopify
+    return base64_image
 
 @router.post("/upload")
 async def upload_to_shopify(request: ShopifyUploadRequest):
