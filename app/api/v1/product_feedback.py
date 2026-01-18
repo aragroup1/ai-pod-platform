@@ -1,51 +1,53 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Optional
+from fastapi import APIRouter, HTTPException, Request
 from app.database import db_pool
 from loguru import logger
 
 router = APIRouter()
 
-class ProductFeedback(BaseModel):
-    product_id: int
-    feedback_type: str
-    notes: Optional[str] = None
-
 @router.post("/feedback")
-async def record_feedback(feedback: ProductFeedback):
-    """Record product approval or rejection"""
+async def record_feedback(request: Request):
+    """Record product approval or rejection - accepts raw JSON"""
     
     try:
-        logger.info(f"✅ Feedback received: product={feedback.product_id}, type={feedback.feedback_type}")
+        # Get raw JSON body
+        body = await request.json()
+        logger.info(f"📝 Raw request received: {body}")
         
-        if feedback.feedback_type not in ['approved', 'rejected']:
+        # Extract fields
+        product_id = body.get('product_id')
+        feedback_type = body.get('feedback_type')
+        
+        if not product_id:
+            raise HTTPException(400, "product_id is required")
+        
+        if feedback_type not in ['approved', 'rejected']:
             raise HTTPException(400, "feedback_type must be 'approved' or 'rejected'")
         
         # Update product status
-        new_status = 'approved' if feedback.feedback_type == 'approved' else 'rejected'
+        new_status = 'approved' if feedback_type == 'approved' else 'rejected'
         
         async with db_pool.pool.acquire() as conn:
             # Check if product exists
             product = await conn.fetchrow(
                 "SELECT id, status FROM products WHERE id = $1",
-                feedback.product_id
+                product_id
             )
             
             if not product:
-                raise HTTPException(404, f"Product {feedback.product_id} not found")
+                raise HTTPException(404, f"Product {product_id} not found")
             
             # Update status
             await conn.execute(
                 "UPDATE products SET status = $1 WHERE id = $2",
                 new_status,
-                feedback.product_id
+                product_id
             )
         
-        logger.info(f"✅ Product {feedback.product_id} status updated to {new_status}")
+        logger.info(f"✅ Product {product_id} status updated to {new_status}")
         
         return {
             "success": True,
-            "product_id": feedback.product_id,
+            "product_id": product_id,
             "status": new_status
         }
         
