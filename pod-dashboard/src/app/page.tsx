@@ -287,22 +287,28 @@ export default function DashboardPage() {
     }
   };
 
-  // === Existing functions (, reject, etc.) ===
-  const Product = async (productId: number) => {
+  // === Existing functions (approve, reject, etc.) ===
+  const approveProduct = async (productId: number) => {
     try {
-      hiddenProductIds.current.add(productId);
-      setRecentProducts(prev => prev.filter(p => p.id !== productId));
       const response = await fetch(`${API_BASE_URL}/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_id: productId, action: 'approve' })
+        body: JSON.stringify({ 
+          product_id: productId, 
+          feedback_type: 'approved',
+          notes: ''
+        })
       });
-      if (!response.ok) {
-        hiddenProductIds.current.delete(productId);
-        await fetchData();
-        throw new Error('Approval failed');
+      
+      if (response.ok) {
+        // Remove from gallery
+        setRecentProducts(prev => prev.filter(p => p.id !== productId));
+        toast.success('Product approved for Shopify!', { icon: <Check className="h-4 w-4" /> });
+        fetchStats();
+      } else {
+        const error = await response.json();
+        toast.error(`Approval failed: ${error.detail || 'Unknown error'}`);
       }
-      toast.success(`Product approved for Shopify!`, { icon: <Check className="h-4 w-4" /> });
     } catch (err: any) {
       toast.error(`Approval failed: ${err.message}`);
     }
