@@ -76,7 +76,8 @@ export default function ShopifyQueue() {
         const data = await res.json();
         toast.success('Product uploaded to Shopify!');
         console.log('Shopify response:', data);
-        fetchApprovedProducts();
+        // Remove from queue
+        setProducts(prev => prev.filter(p => p.id !== productId));
       } else {
         const error = await res.json();
         toast.error(`Upload failed: ${error.detail || 'Unknown error'}`);
