@@ -15,8 +15,13 @@ class ShopifyUploadRequest(BaseModel):
     product_id: int
 
 def extract_s3_key_from_url(url: str) -> str:
-    """Extract S3 key from pre-signed URL or regular S3 URL"""
-    # Try multiple patterns
+    """Extract S3 key from pre-signed URL, regular URL, or just return if it's already a key"""
+    # If it's already just a key (no http/https), return it
+    if not url.startswith(('http://', 'https://', 's3://')):
+        logger.info(f"📌 Using direct S3 key: {url}")
+        return url
+    
+    # Try to extract from full URLs
     patterns = [
         r'amazonaws\.com/(.+?)\?',  # Pre-signed URL
         r'amazonaws\.com/(.+)$',     # Regular S3 URL without params
@@ -108,7 +113,7 @@ async def upload_to_shopify(request: ShopifyUploadRequest):
             "body_html": product['description'] or "Premium quality canvas print. Ready to hang.",
             "vendor": "",
             "product_type": "",
-            "published_scope": "web",
+            "published": True,  # Publish to Online Store
             "status": "draft",
             "variants": [{
                 "price": str(product['base_price'] or 29.99),
