@@ -815,7 +815,7 @@ export default function DashboardPage() {
                               <Button 
                                 size="sm" 
                                 className="h-6 w-6 p-0"
-                                onClick={() => approveProduct(product.id)}
+                                onClick={() => handleApprove(product.id)}
                                 title="Approve for Shopify"
                               >
                                 <Check className="h-3 w-3" />
