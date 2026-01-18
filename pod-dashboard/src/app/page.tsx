@@ -335,19 +335,25 @@ export default function DashboardPage() {
 };
   const rejectProduct = async (productId: number) => {
     try {
-      hiddenProductIds.current.add(productId);
-      setRecentProducts(prev => prev.filter(p => p.id !== productId));
       const response = await fetch(`${API_BASE_URL}/product-feedback/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_id: productId, action: 'reject' })
+        body: JSON.stringify({ 
+          product_id: productId, 
+          feedback_type: 'rejected',
+          notes: ''
+        })
       });
-      if (!response.ok) {
-        hiddenProductIds.current.delete(productId);
-        await fetchData();
-        throw new Error('Rejection failed');
+      
+      if (response.ok) {
+        // Remove from gallery immediately
+        setRecentProducts(prev => prev.filter(p => p.id !== productId));
+        toast.success('Product rejected', { icon: <ThumbsDown className="h-4 w-4" /> });
+        fetchStats(); // Refresh stats
+      } else {
+        const error = await response.json();
+        toast.error(`Rejection failed: ${error.detail || 'Unknown error'}`);
       }
-      toast.success(`Product rejected and deleted from S3`, { icon: <ThumbsDown className="h-4 w-4" /> });
     } catch (err: any) {
       toast.error(`Rejection failed: ${err.message}`);
     }
