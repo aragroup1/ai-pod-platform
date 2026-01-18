@@ -126,7 +126,8 @@ async def upload_to_shopify(request: ShopifyUploadRequest):
             "variants": [{
                 "price": str(product['base_price'] or 29.99),
                 "sku": sku,
-                "inventory_management": None
+                "inventory_management": "shopify",  # Enable inventory tracking
+                "inventory_quantity": 10  # Set quantity to 10
             }]
         }
     }
