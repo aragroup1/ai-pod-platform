@@ -6,9 +6,11 @@ from typing import List, Optional
 from loguru import logger
 from datetime import datetime
 
-from app.database import DatabasePool
+from app.database import DatabasePool, db_pool
 from app.dependencies import get_db_pool
 from app.utils.s3_storage import get_storage_manager
+from app.config import settings
+import json
 
 router = APIRouter()
 
