@@ -287,8 +287,8 @@ export default function DashboardPage() {
     }
   };
 
-  // === Existing functions (approve, reject, etc.) ===
-  const approveProduct = async (productId: number) => {
+  // === Existing functions (, reject, etc.) ===
+  const Product = async (productId: number) => {
     try {
       hiddenProductIds.current.add(productId);
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
@@ -308,6 +308,31 @@ export default function DashboardPage() {
     }
   };
 
+  const handleApprove = async (productId: number) => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/product-feedback/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        product_id: productId,
+        feedback_type: 'approved',
+        notes: ''
+      })
+    });
+
+    if (res.ok) {
+      toast.success('Product approved!');
+      // Remove from gallery
+      setRecentProducts(prev => prev.filter(p => p.id !== productId));
+      fetchStats(); // Refresh stats
+    } else {
+      const error = await res.json();
+      toast.error(`Approval failed: ${error.detail}`);
+    }
+  } catch (err) {
+    toast.error('Approval failed');
+  }
+};
   const rejectProduct = async (productId: number) => {
     try {
       hiddenProductIds.current.add(productId);
