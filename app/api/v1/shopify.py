@@ -101,9 +101,17 @@ async def upload_to_shopify(request: ShopifyUploadRequest):
         try:
             logger.info(f"🖼️ Image URL: {product['image_url'][:100]}...")
             base64_image = await download_s3_image_as_base64(product['image_url'])
-            logger.info(f"✅ Image downloaded successfully ({len(base64_image)} chars)")
+            
+            # Check size (Shopify limit is ~10MB for base64)
+            size_mb = len(base64_image) / (1024 * 1024)
+            logger.info(f"✅ Image downloaded successfully ({len(base64_image)} chars, ~{size_mb:.2f}MB)")
+            
+            if size_mb > 9:
+                logger.warning(f"⚠️ Image too large ({size_mb:.2f}MB), Shopify may reject it")
+                base64_image = None  # Don't send oversized images
         except Exception as e:
             logger.error(f"❌ Failed to download image: {e}")
+            base64_image = None
     else:
         logger.warning(f"⚠️ No image URL for product {request.product_id}")
     
@@ -145,16 +153,20 @@ async def upload_to_shopify(request: ShopifyUploadRequest):
                 shopify_data = response.json()
                 logger.info(f"✅ Product {request.product_id} uploaded to Shopify")
                 logger.info(f"   Shopify Product ID: {shopify_data['product']['id']}")
-                logger.info(f"   Has images: {len(shopify_data['product'].get('images', [])) > 0}")
                 
-                # Don't update status - keep it as 'approved'
-                # If you want to track uploads, add a new column like 'shopify_product_id'
+                images = shopify_data['product'].get('images', [])
+                logger.info(f"   Images in response: {len(images)}")
+                
+                if len(images) == 0 and base64_image:
+                    logger.error(f"   ⚠️ IMAGE REJECTED BY SHOPIFY!")
+                    logger.error(f"   Base64 size: {len(base64_image) / (1024*1024):.2f}MB")
+                    logger.error(f"   Check Shopify API docs for image requirements")
                 
                 return {
                     "success": True,
                     "shopify_product_id": shopify_data['product']['id'],
                     "shopify_url": f"https://{shop_url}/admin/products/{shopify_data['product']['id']}",
-                    "has_images": len(shopify_data['product'].get('images', [])) > 0,
+                    "has_images": len(images) > 0,
                     "sku": sku
                 }
             else:
