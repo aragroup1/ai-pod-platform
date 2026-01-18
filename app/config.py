@@ -4,6 +4,12 @@ from functools import lru_cache
 import os
 
 class Settings(BaseSettings):
+
+    AWS_ACCESS_KEY_ID: str
+    AWS_SECRET_ACCESS_KEY: str
+    AWS_REGION: str = "eu-north-1"
+    S3_BUCKET_NAME: str = "ai-pod-platform-images"
+    
     # CRITICAL: These must be set in production
     SHOPIFY_SHOP_URL: str = ""
     SHOPIFY_ACCESS_TOKEN: str = ""
