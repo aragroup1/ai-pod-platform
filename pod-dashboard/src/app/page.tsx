@@ -330,7 +330,7 @@ export default function DashboardPage() {
       toast.success('Product approved!');
       // Remove from gallery
       setRecentProducts(prev => prev.filter(p => p.id !== productId));
-      fetchStats(); // Refresh stats
+      fetchData(); // Refresh stats
     } else {
       const error = await res.json();
       toast.error(`Approval failed: ${error.detail}`);
@@ -355,7 +355,7 @@ export default function DashboardPage() {
         // Remove from gallery immediately
         setRecentProducts(prev => prev.filter(p => p.id !== productId));
         toast.success('Product rejected', { icon: <ThumbsDown className="h-4 w-4" /> });
-        fetchStats(); // Refresh stats
+        fetchData(); // Refresh stats
       } else {
         const error = await response.json();
         toast.error(`Rejection failed: ${error.detail || 'Unknown error'}`);
