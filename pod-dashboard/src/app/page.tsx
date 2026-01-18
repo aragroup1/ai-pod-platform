@@ -304,7 +304,7 @@ export default function DashboardPage() {
         // Remove from gallery
         setRecentProducts(prev => prev.filter(p => p.id !== productId));
         toast.success('Product approved for Shopify!', { icon: <Check className="h-4 w-4" /> });
-        fetchStats();
+        fetchData();
       } else {
         const error = await response.json();
         toast.error(`Approval failed: ${error.detail || 'Unknown error'}`);
