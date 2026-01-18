@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.database import db_pool
 from loguru import logger
 
+# VERSION: 2.0 - Backwards compatible with action/approve format
 router = APIRouter()
 
 @router.post("/feedback")
@@ -13,18 +14,32 @@ async def record_feedback(request: Request):
         body = await request.json()
         logger.info(f"📝 Raw request received: {body}")
         
-        # Extract fields
+        # Extract fields - accept BOTH formats for backwards compatibility
         product_id = body.get('product_id')
-        feedback_type = body.get('feedback_type')
+        feedback_type = body.get('feedback_type') or body.get('action')  # Accept both!
+        
+        logger.info(f"   product_id: {product_id}, feedback_type: {feedback_type}")
         
         if not product_id:
+            logger.error("❌ Missing product_id")
             raise HTTPException(400, "product_id is required")
         
+        # Normalize values: approve/reject -> approved/rejected
+        if feedback_type == 'approve':
+            logger.info("   Normalizing 'approve' -> 'approved'")
+            feedback_type = 'approved'
+        elif feedback_type == 'reject':
+            logger.info("   Normalizing 'reject' -> 'rejected'")
+            feedback_type = 'rejected'
+        
         if feedback_type not in ['approved', 'rejected']:
-            raise HTTPException(400, "feedback_type must be 'approved' or 'rejected'")
+            logger.error(f"❌ Invalid feedback_type: {feedback_type}")
+            raise HTTPException(400, f"feedback_type must be 'approved' or 'rejected', got: {feedback_type}")
+        
+        logger.info(f"✅ Normalized status: {feedback_type}")
         
         # Update product status
-        new_status = 'approved' if feedback_type == 'approved' else 'rejected'
+        new_status = feedback_type  # Already normalized
         
         async with db_pool.pool.acquire() as conn:
             # Check if product exists
