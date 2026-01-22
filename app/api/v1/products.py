@@ -51,10 +51,12 @@ async def get_product_image(
 async def get_products(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    status: Optional[str] = None,
     category: Optional[str] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
     search: Optional[str] = None,
+    include_images: Optional[bool] = False,
     db_pool: DatabasePool = Depends(get_db_pool)
 ):
     """Get list of products with optional filtering"""
@@ -82,6 +84,11 @@ async def get_products(
         
         params = []
         param_index = 1
+        
+        if status:
+            base_query += f" AND p.status = ${param_index}"
+            params.append(status)
+            param_index += 1
         
         if category:
             base_query += f" AND p.category = ${param_index}"
