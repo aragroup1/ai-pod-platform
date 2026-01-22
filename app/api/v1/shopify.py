@@ -163,6 +163,14 @@ async def upload_to_shopify(request: ShopifyUploadRequest):
                     logger.error(f"   Base64 size: {len(base64_image) / (1024*1024):.2f}MB")
                     logger.error(f"   Check Shopify API docs for image requirements")
                 
+                # Update product status to 'active' so it doesn't appear in queue again
+                async with db_pool.pool.acquire() as conn:
+                    await conn.execute(
+                        "UPDATE products SET status = 'active' WHERE id = $1",
+                        request.product_id
+                    )
+                logger.info(f"   ✅ Product status updated to 'active'")
+                
                 return {
                     "success": True,
                     "shopify_product_id": shopify_data['product']['id'],
